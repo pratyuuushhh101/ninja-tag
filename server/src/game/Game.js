@@ -1,4 +1,5 @@
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_RADIUS, PLAYER_SPEED, FIXED_DT } from '../../../shared/protocol/constants.js';
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_RADIUS, FIXED_DT } from '../../../shared/protocol/constants.js';
+import { simulatePlayerMovement } from '../../../shared/game/movement.js';
 
 export class Game {
   constructor() {
@@ -51,38 +52,16 @@ export class Game {
   update(fixedDt = FIXED_DT) {
     this.tick += 1;
 
-    // Process inputs and update movement for each player
+    // Process inputs and update movement for each player using shared movement logic
     for (const [, player] of this.players) {
-      // Associate processed input sequence with current input sequence
       player.lastProcessedInputSequence = player.lastReceivedInputSequence;
-      this.updatePlayerMovement(player, fixedDt);
+      const newPos = simulatePlayerMovement({ x: player.x, y: player.y }, player.input, fixedDt);
+      player.x = newPos.x;
+      player.y = newPos.y;
     }
 
     // Check tag collision
     this.checkTagCollision();
-  }
-
-  updatePlayerMovement(player, fixedDt) {
-    let dx = 0;
-    let dy = 0;
-    if (player.input.left) dx -= 1;
-    if (player.input.right) dx += 1;
-    if (player.input.up) dy -= 1;
-    if (player.input.down) dy += 1;
-
-    // Normalize diagonal movement
-    if (dx !== 0 && dy !== 0) {
-      const len = Math.sqrt(dx * dx + dy * dy);
-      dx /= len;
-      dy /= len;
-    }
-
-    player.x += dx * PLAYER_SPEED * fixedDt;
-    player.y += dy * PLAYER_SPEED * fixedDt;
-
-    // Clamp to arena boundaries
-    player.x = Math.max(PLAYER_RADIUS, Math.min(this.arena.width - PLAYER_RADIUS, player.x));
-    player.y = Math.max(PLAYER_RADIUS, Math.min(this.arena.height - PLAYER_RADIUS, player.y));
   }
 
   checkTagCollision() {

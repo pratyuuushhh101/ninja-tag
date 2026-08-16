@@ -1,49 +1,68 @@
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_RADIUS, PLAYER_SPEED, VALID_INPUT_KEYS } from '../../../shared/protocol/constants.js';
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_RADIUS, PLAYER_SPEED, FIXED_DT } from '../../../shared/protocol/constants.js';
 
 export class Game {
   constructor() {
-    this.players = new Map(); // playerId -> { id, x, y, input: {up,down,left,right} }
+    this.tick = 0;
+    this.players = new Map(); // playerId -> player object
     this.itPlayerId = null;
     this.arena = { width: ARENA_WIDTH, height: ARENA_HEIGHT };
     this.tagLocked = false; // prevents tag flickering
   }
 
   initialize(playerIds) {
-    // Spawn player 1 at left, player 2 at right
+    this.tick = 0;
     const ids = Array.from(playerIds);
+
     this.players.set(ids[0], {
       id: ids[0],
       x: 200,
       y: this.arena.height / 2,
-      input: { up: false, down: false, left: false, right: false }
+      input: { up: false, down: false, left: false, right: false },
+      lastReceivedInputSequence: 0,
+      lastProcessedInputSequence: 0
     });
+
     this.players.set(ids[1], {
       id: ids[1],
       x: 800,
       y: this.arena.height / 2,
-      input: { up: false, down: false, left: false, right: false }
+      input: { up: false, down: false, left: false, right: false },
+      lastReceivedInputSequence: 0,
+      lastProcessedInputSequence: 0
     });
+
     // Randomly assign IT
     this.itPlayerId = Math.random() < 0.5 ? ids[0] : ids[1];
   }
 
-  setPlayerInput(playerId, input) {
+  setPlayerInput(playerId, sequence, input) {
     const player = this.players.get(playerId);
-    if (player) {
-      player.input = input;
+    if (!player) return;
+
+    // Ignore stale or duplicate input sequence numbers
+    if (sequence <= player.lastReceivedInputSequence) {
+      return;
     }
+
+    player.lastReceivedInputSequence = sequence;
+    player.input = input;
   }
 
-  update(deltaTime) {
-    // Update movement for each player
+  update(fixedDt = FIXED_DT) {
+    this.tick += 1;
+
+    // Process inputs and update movement for each player
     for (const [, player] of this.players) {
-      this.updatePlayerMovement(player, deltaTime);
+      // Associate processed input sequence with current input sequence
+      player.lastProcessedInputSequence = player.lastReceivedInputSequence;
+      this.updatePlayerMovement(player, fixedDt);
     }
+
     // Check tag collision
     this.checkTagCollision();
   }
 
-  updatePlayerMovement(player, deltaTime) {
+  updatePlayerMovement(player, fixedDt) {
     let dx = 0;
     let dy = 0;
     if (player.input.left) dx -= 1;
@@ -58,8 +77,8 @@ export class Game {
       dy /= len;
     }
 
-    player.x += dx * PLAYER_SPEED * deltaTime;
-    player.y += dy * PLAYER_SPEED * deltaTime;
+    player.x += dx * PLAYER_SPEED * fixedDt;
+    player.y += dy * PLAYER_SPEED * fixedDt;
 
     // Clamp to arena boundaries
     player.x = Math.max(PLAYER_RADIUS, Math.min(this.arena.width - PLAYER_RADIUS, player.x));
@@ -82,7 +101,7 @@ export class Game {
       const otherPlayer = this.itPlayerId === p1.id ? p2 : p1;
       this.itPlayerId = otherPlayer.id;
       this.tagLocked = true;
-      console.log(`[NinjaTag] Tag! ${itPlayer.id} tagged ${otherPlayer.id}`);
+      console.log(`[NinjaTag] Tag! ${itPlayer.id} tagged ${otherPlayer.id} at tick ${this.tick}`);
     } else if (!touching && this.tagLocked) {
       // Players separated, unlock tag
       this.tagLocked = false;
@@ -92,9 +111,14 @@ export class Game {
   getState() {
     const players = [];
     for (const [, player] of this.players) {
-      players.push({ id: player.id, x: player.x, y: player.y });
+      players.push({
+        id: player.id,
+        x: player.x,
+        y: player.y,
+        lastProcessedInput: player.lastProcessedInputSequence
+      });
     }
-    return { players, itPlayerId: this.itPlayerId };
+    return { tick: this.tick, players, itPlayerId: this.itPlayerId };
   }
 
   removePlayer(playerId) {

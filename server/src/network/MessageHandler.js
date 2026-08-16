@@ -105,7 +105,13 @@ function handleInput(ws, message, roomManager) {
     return sendError(ws, ERROR_CODES.INVALID_STATE, 'Game is not active.');
   }
 
-  // Validate input
+  // Validate sequence number
+  const sequence = message.sequence;
+  if (typeof sequence !== 'number' || !Number.isInteger(sequence) || sequence < 0) {
+    return sendError(ws, ERROR_CODES.INVALID_INPUT, 'Invalid sequence number.');
+  }
+
+  // Validate input object
   const input = message.input;
   if (!input || typeof input !== 'object') {
     return sendError(ws, ERROR_CODES.INVALID_INPUT, 'Missing input field.');
@@ -120,7 +126,7 @@ function handleInput(ws, message, roomManager) {
     validatedInput[key] = input[key];
   }
 
-  room.game.setPlayerInput(playerId, validatedInput);
+  room.game.setPlayerInput(playerId, sequence, validatedInput);
 }
 
 export function handleMessage(ws, rawData, roomManager) {

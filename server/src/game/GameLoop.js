@@ -1,43 +1,57 @@
-import { SERVER_TICK_RATE, SERVER_MESSAGES } from '../../../shared/protocol/constants.js';
+import { performance } from 'node:perf_hooks';
+import { FIXED_DT, MAX_FRAME_TIME, SNAPSHOT_INTERVAL_MS, SERVER_TICK_RATE, SNAPSHOT_SEND_RATE } from '../../../shared/protocol/constants.js';
+import { createSnapshot } from './SnapshotGenerator.js';
 
 export class GameLoop {
   constructor() {
-    this.intervals = new Map(); // roomCode -> intervalId
+    this.loops = new Map(); // roomCode -> loopState
   }
 
   start(roomCode, room) {
-    if (this.intervals.has(roomCode)) return;
+    if (this.loops.has(roomCode)) return;
 
-    let lastTime = Date.now();
-    const tickMs = 1000 / SERVER_TICK_RATE;
+    let previousTime = performance.now();
+    let accumulator = 0;
+    let lastSnapshotTime = performance.now();
 
+    // Run tick loop at high frequency (~4ms timeout or setImmediate loop) to process accumulator smoothly
     const intervalId = setInterval(() => {
-      const now = Date.now();
-      const deltaTime = (now - lastTime) / 1000; // seconds
-      lastTime = now;
-
       if (!room.game) return;
 
-      room.game.update(deltaTime);
+      const currentTime = performance.now();
+      let frameTime = (currentTime - previousTime) / 1000; // convert ms to seconds
+      previousTime = currentTime;
 
-      // Broadcast game state to all players in the room
-      const state = room.game.getState();
-      room.broadcastToRoom({
-        type: SERVER_MESSAGES.GAME_STATE,
-        players: state.players,
-        itPlayerId: state.itPlayerId
-      });
-    }, tickMs);
+      // Stall protection: clamp max frame time to avoid spiral of death
+      if (frameTime > MAX_FRAME_TIME) {
+        frameTime = MAX_FRAME_TIME;
+      }
 
-    this.intervals.set(roomCode, intervalId);
-    console.log(`[NinjaTag] Game loop started for room ${roomCode} at ${SERVER_TICK_RATE}Hz`);
+      accumulator += frameTime;
+
+      // Execute fixed 60Hz simulation ticks
+      while (accumulator >= FIXED_DT) {
+        room.game.update(FIXED_DT);
+        accumulator -= FIXED_DT;
+      }
+
+      // Broadcast authoritative snapshots at decoupled snapshot rate (20Hz)
+      if (currentTime - lastSnapshotTime >= SNAPSHOT_INTERVAL_MS) {
+        lastSnapshotTime = currentTime;
+        const snapshot = createSnapshot(room.game);
+        room.broadcastToRoom(snapshot);
+      }
+    }, 4); // ~250Hz loop check to ensure sub-millisecond precision for fixed ticks and snapshot intervals
+
+    this.loops.set(roomCode, { intervalId });
+    console.log(`[NinjaTag] Fixed 60Hz game loop started for room ${roomCode} (Snapshots: ${SNAPSHOT_SEND_RATE}Hz)`);
   }
 
   stop(roomCode) {
-    const intervalId = this.intervals.get(roomCode);
-    if (intervalId) {
-      clearInterval(intervalId);
-      this.intervals.delete(roomCode);
+    const loopState = this.loops.get(roomCode);
+    if (loopState) {
+      clearInterval(loopState.intervalId);
+      this.loops.delete(roomCode);
       console.log(`[NinjaTag] Game loop stopped for room ${roomCode}`);
     }
   }

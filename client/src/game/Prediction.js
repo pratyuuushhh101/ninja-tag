@@ -4,21 +4,11 @@ import { wsClient } from '../network/WebSocketClient.js';
 import { networkState } from '../network/NetworkState.js';
 
 /**
- * Client Prediction & Server Reconciliation Engine (Phase 4.3)
+ * Client Prediction & Server Reconciliation Engine (Phase 4.4)
  *
- * Runs a single 60Hz loop operating at FIXED_DT (1/60s).
- * Every tick:
- *  1. Reads current keyboard input state
- *  2. Increments sequence number
- *  3. Creates immutable input command { sequence, input }
- *  4. Adds command to pendingInputs queue
- *  5. Executes 1 FIXED_DT local prediction step
- *  6. Transmits command to server over WebSocket
- *
- * On snapshot arrival:
- *  1. Prunes pendingInputs where sequence <= lastProcessedInput ACK
- *  2. Resets predictedPosition to server (authX, authY)
- *  3. Replays remaining unacknowledged commands in sequence order
+ * Runs local player prediction independently at a fixed 60Hz simulation cadence.
+ * Transmits input-state version updates over WebSocket at ~30Hz.
+ * Tracks tick duration executed per input version (ticks) for exact sequence-based reconciliation replay.
  */
 export class Prediction {
   constructor() {
@@ -44,7 +34,7 @@ export class Prediction {
       clearInterval(this.predictionIntervalId);
     }
 
-    // Unified 60Hz local simulation & input transmission loop (~16.67ms)
+    // Independent 60Hz local simulation loop (~16.67ms)
     this.predictionIntervalId = setInterval(this.tickPrediction, 1000 / 60);
   }
 
@@ -64,9 +54,13 @@ export class Prediction {
   }
 
   /**
-   * Helper method to append a sequence-numbered input command to pendingInputs.
+   * Transmits a new input-state version update over WebSocket (~30Hz or on key change).
    */
-  addInput(sequence, inputState) {
+  sendInputState(inputState) {
+    if (!this.predictedPosition) return;
+
+    const sequence = networkState.getNextInputSequence();
+
     const cmd = {
       sequence,
       input: {
@@ -74,47 +68,17 @@ export class Prediction {
         down: Boolean(inputState.down),
         left: Boolean(inputState.left),
         right: Boolean(inputState.right)
-      }
-    };
-    this.pendingInputs.push(cmd);
-    if (this.pendingInputs.length > this.maxPendingInputs) {
-      this.pendingInputs.shift();
-    }
-  }
-
-  /**
-   * 60Hz simulation & input transmission tick.
-   * Generates exactly 1 sequence-numbered input command per FIXED_DT step.
-   */
-  tickPrediction() {
-    if (!this.predictedPosition) return;
-
-    const currentInput = this.inputManagerRef
-      ? this.inputManagerRef.getInput()
-      : { up: false, down: false, left: false, right: false };
-
-    const sequence = networkState.getNextInputSequence();
-
-    const cmd = {
-      sequence,
-      input: {
-        up: Boolean(currentInput.up),
-        down: Boolean(currentInput.down),
-        left: Boolean(currentInput.left),
-        right: Boolean(currentInput.right)
-      }
+      },
+      ticks: 0
     };
 
-    // 1. Queue command in pending history for reconciliation
+    // Append input-state version command to pending queue
     this.pendingInputs.push(cmd);
     if (this.pendingInputs.length > this.maxPendingInputs) {
       this.pendingInputs.shift();
     }
 
-    // 2. Advance predicted position by exactly one FIXED_DT step
-    this.predictedPosition = simulatePlayerMovement(this.predictedPosition, cmd.input, FIXED_DT);
-
-    // 3. Transmit command over WebSocket
+    // Transmit over WebSocket
     if (wsClient.isConnected()) {
       wsClient.send({
         type: CLIENT_MESSAGES.INPUT,
@@ -125,8 +89,29 @@ export class Prediction {
   }
 
   /**
+   * 60Hz local prediction simulation tick.
+   * Advances local predicted position and increments tick counter for active input version.
+   */
+  tickPrediction() {
+    if (!this.predictedPosition) return;
+
+    const currentInput = this.inputManagerRef
+      ? this.inputManagerRef.getInput()
+      : { up: false, down: false, left: false, right: false };
+
+    // Advance local prediction by 1 FIXED_DT step
+    this.predictedPosition = simulatePlayerMovement(this.predictedPosition, currentInput, FIXED_DT);
+
+    // Increment simulation tick count for active input command version
+    if (this.pendingInputs.length > 0) {
+      this.pendingInputs[this.pendingInputs.length - 1].ticks += 1;
+    }
+  }
+
+  /**
    * Reconciles local prediction with authoritative server position.
-   * Resets position to server (authX, authY) and replays unacknowledged pending input commands.
+   * Resets position to server (authX, authY) and replays unacknowledged input versions
+   * for their exact executed tick counts.
    *
    * @param {Object} authoritativePos - Authoritative { x, y } from server snapshot
    * @param {number} lastProcessedInput - Server acknowledged input sequence
@@ -136,18 +121,20 @@ export class Prediction {
 
     this.authoritativePosition = { ...authoritativePos };
 
-    // Prune acknowledged inputs sequence <= lastProcessedInput
+    // Prune acknowledged input sequence versions <= lastProcessedInput ACK
     if (typeof lastProcessedInput === 'number') {
       this.pendingInputs = this.pendingInputs.filter(cmd => cmd.sequence > lastProcessedInput);
     }
 
-    // Sort remaining commands strictly by sequence number ascending
+    // Sort remaining input versions by sequence ascending
     this.pendingInputs.sort((a, b) => a.sequence - b.sequence);
 
     // Reconstruct predicted position starting from server position
     let replayedPos = { ...authoritativePos };
     for (const cmd of this.pendingInputs) {
-      replayedPos = simulatePlayerMovement(replayedPos, cmd.input, FIXED_DT);
+      for (let t = 0; t < cmd.ticks; t++) {
+        replayedPos = simulatePlayerMovement(replayedPos, cmd.input, FIXED_DT);
+      }
     }
 
     this.predictedPosition = replayedPos;

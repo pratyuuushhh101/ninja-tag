@@ -19,6 +19,7 @@ export class Game {
       x: 200,
       y: this.arena.height / 2,
       input: { up: false, down: false, left: false, right: false },
+      currentInputSequence: 0,
       lastReceivedInputSequence: 0,
       lastProcessedInputSequence: 0
     });
@@ -28,6 +29,7 @@ export class Game {
       x: 800,
       y: this.arena.height / 2,
       input: { up: false, down: false, left: false, right: false },
+      currentInputSequence: 0,
       lastReceivedInputSequence: 0,
       lastProcessedInputSequence: 0
     });
@@ -46,7 +48,9 @@ export class Game {
     }
 
     player.lastReceivedInputSequence = sequence;
+    player.currentInputSequence = sequence;
     player.input = input;
+    // NOTE: lastProcessedInputSequence is NOT updated here on receipt!
   }
 
   update(fixedDt = FIXED_DT) {
@@ -54,10 +58,10 @@ export class Game {
 
     // Process inputs and update movement for each player using shared movement logic
     for (const [, player] of this.players) {
-      player.lastProcessedInputSequence = player.lastReceivedInputSequence;
       const newPos = simulatePlayerMovement({ x: player.x, y: player.y }, player.input, fixedDt);
       player.x = newPos.x;
       player.y = newPos.y;
+      player.lastProcessedInputSequence = player.currentInputSequence;
     }
 
     // Check tag collision

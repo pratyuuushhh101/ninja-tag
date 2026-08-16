@@ -4,15 +4,19 @@ import { wsClient } from '../network/WebSocketClient.js';
 import { networkState } from '../network/NetworkState.js';
 
 /**
- * Client Prediction & Server Reconciliation Engine (Phase 4.4)
+ * Client Prediction & Server Reconciliation Engine (Phase 4.5)
  *
  * Runs local player prediction independently at a fixed 60Hz simulation cadence.
  * Transmits input-state version updates over WebSocket at ~30Hz.
- * Tracks tick duration executed per input version (ticks) for exact sequence-based reconciliation replay.
+ * Maintains an explicit predictionHistory timeline ({ sequence, input, steps }) separate
+ * from ACK pending state to preserve local prediction steps executed after an ACK.
  */
 export class Prediction {
   constructor() {
     this.pendingInputs = [];
+    this.predictionHistory = [];
+    this.lastAcknowledgedSequence = 0;
+    this.currentHistoryEntry = null;
     this.authoritativePosition = null;
     this.predictedPosition = null;
     this.maxPendingInputs = 500; // Defensive safety cap
@@ -23,6 +27,9 @@ export class Prediction {
 
   init(initialPosition) {
     this.pendingInputs = [];
+    this.predictionHistory = [];
+    this.lastAcknowledgedSequence = 0;
+    this.currentHistoryEntry = null;
     this.authoritativePosition = initialPosition ? { ...initialPosition } : { x: 200, y: 300 };
     this.predictedPosition = initialPosition ? { ...initialPosition } : { x: 200, y: 300 };
   }
@@ -49,6 +56,9 @@ export class Prediction {
   reset() {
     this.stop();
     this.pendingInputs = [];
+    this.predictionHistory = [];
+    this.lastAcknowledgedSequence = 0;
+    this.currentHistoryEntry = null;
     this.authoritativePosition = null;
     this.predictedPosition = null;
   }
@@ -68,14 +78,26 @@ export class Prediction {
         down: Boolean(inputState.down),
         left: Boolean(inputState.left),
         right: Boolean(inputState.right)
-      },
-      ticks: 0
+      }
     };
 
-    // Append input-state version command to pending queue
+    // Store in pending queue
     this.pendingInputs.push(cmd);
     if (this.pendingInputs.length > this.maxPendingInputs) {
       this.pendingInputs.shift();
+    }
+
+    // Create a new entry in predictionHistory for this sequence version
+    this.currentHistoryEntry = {
+      sequence,
+      input: { ...cmd.input },
+      steps: 0
+    };
+    this.predictionHistory.push(this.currentHistoryEntry);
+
+    // Prune old history entries (keep max 100 entries)
+    if (this.predictionHistory.length > 100) {
+      this.predictionHistory.shift();
     }
 
     // Transmit over WebSocket
@@ -90,7 +112,7 @@ export class Prediction {
 
   /**
    * 60Hz local prediction simulation tick.
-   * Advances local predicted position and increments tick counter for active input version.
+   * Advances local predicted position and records step into predictionHistory.
    */
   tickPrediction() {
     if (!this.predictedPosition) return;
@@ -102,16 +124,29 @@ export class Prediction {
     // Advance local prediction by 1 FIXED_DT step
     this.predictedPosition = simulatePlayerMovement(this.predictedPosition, currentInput, FIXED_DT);
 
-    // Increment simulation tick count for active input command version
-    if (this.pendingInputs.length > 0) {
-      this.pendingInputs[this.pendingInputs.length - 1].ticks += 1;
+    // Ensure we have an active unacknowledged predictionHistory entry
+    if (!this.currentHistoryEntry || this.currentHistoryEntry.sequence <= this.lastAcknowledgedSequence) {
+      const activeSequence = Math.max(networkState.nextInputSequence, this.lastAcknowledgedSequence + 1);
+      this.currentHistoryEntry = {
+        sequence: activeSequence,
+        input: {
+          up: Boolean(currentInput.up),
+          down: Boolean(currentInput.down),
+          left: Boolean(currentInput.left),
+          right: Boolean(currentInput.right)
+        },
+        steps: 1
+      };
+      this.predictionHistory.push(this.currentHistoryEntry);
+    } else {
+      this.currentHistoryEntry.steps += 1;
     }
   }
 
   /**
    * Reconciles local prediction with authoritative server position.
-   * Resets position to server (authX, authY) and replays unacknowledged input versions
-   * for their exact executed tick counts.
+   * Resets position to server (authX, authY), prunes predictionHistory <= ACK,
+   * and replays unacknowledged post-ACK prediction steps.
    *
    * @param {Object} authoritativePos - Authoritative { x, y } from server snapshot
    * @param {number} lastProcessedInput - Server acknowledged input sequence
@@ -121,19 +156,28 @@ export class Prediction {
 
     this.authoritativePosition = { ...authoritativePos };
 
-    // Prune acknowledged input sequence versions <= lastProcessedInput ACK
     if (typeof lastProcessedInput === 'number') {
+      this.lastAcknowledgedSequence = Math.max(this.lastAcknowledgedSequence, lastProcessedInput);
+
+      // Prune pending network messages <= ACK
       this.pendingInputs = this.pendingInputs.filter(cmd => cmd.sequence > lastProcessedInput);
+
+      // Prune prediction history entries <= ACK
+      this.predictionHistory = this.predictionHistory.filter(entry => entry.sequence > lastProcessedInput);
+
+      if (this.currentHistoryEntry && this.currentHistoryEntry.sequence <= lastProcessedInput) {
+        this.currentHistoryEntry = null;
+      }
     }
 
-    // Sort remaining input versions by sequence ascending
-    this.pendingInputs.sort((a, b) => a.sequence - b.sequence);
+    // Sort remaining history strictly by sequence ascending
+    this.predictionHistory.sort((a, b) => a.sequence - b.sequence);
 
     // Reconstruct predicted position starting from server position
     let replayedPos = { ...authoritativePos };
-    for (const cmd of this.pendingInputs) {
-      for (let t = 0; t < cmd.ticks; t++) {
-        replayedPos = simulatePlayerMovement(replayedPos, cmd.input, FIXED_DT);
+    for (const entry of this.predictionHistory) {
+      for (let i = 0; i < entry.steps; i++) {
+        replayedPos = simulatePlayerMovement(replayedPos, entry.input, FIXED_DT);
       }
     }
 

@@ -1,12 +1,16 @@
 /**
- * Ninja Tag Phase 4.1 — Acceptance Test Script
+ * Ninja Tag Phase 4.2 — Acceptance Test Script
  *
- * Tests Phase 4.1 Correctness Patch:
- * - TEST A: 60Hz local prediction loop independent of ~30Hz network input send
- * - TEST B: Movement speed (250/60 per 60Hz prediction tick)
- * - TEST C: PlayerId reference closure fix & snapshot ACK extraction
- * - TEST D: Single WebSocket message handler registration
- * - TEST E: Reconciliation correctness (authoritative pos + ACK + unacked input replay)
+ * Tests Phase 4.2 Correctness Patch (Reconciliation Semantics):
+ * - TEST 1: 30Hz network input vs 60Hz simulation timing (reconciliation simulates tick interval, not input count)
+ * - TEST 2: Sustained movement (holding RIGHT for 1 sec = 60 ticks = 250px displacement)
+ * - TEST 3: Input changes timeline (RIGHT -> DOWN+RIGHT -> LEFT)
+ * - TEST 4: ACK sequence pruning
+ * - TEST 5: ACK newest input (predicted position matches authoritative position when S = C)
+ * - TEST 6: No pending inputs / stationary player
+ * - TEST 7: Repeated snapshots (no runaway movement or accumulating drift)
+ * - TEST 8: Diagonal movement (preserves vector normalization in reconciliation)
+ * - TEST 9: End-to-End integration snapshot & tick reconciliation
  *
  * Run with: node test/acceptance.js
  * Requires the server to be running on port 3001 for integration tests.
@@ -102,109 +106,166 @@ async function createAndStartGame() {
 }
 
 async function runTests() {
-  console.log('\n🥷 Ninja Tag Phase 4.1 — Acceptance Tests\n');
-  console.log('── Unit Tests: 60Hz Prediction Timing & PlayerId Closure ──\n');
+  console.log('\n🥷 Ninja Tag Phase 4.2 — Acceptance Tests (Reconciliation Semantics)\n');
+  console.log('── Unit Tests: Reconciliation Semantics & 60Hz Tick Replay ──\n');
 
-  // Test A — 60Hz local prediction rate
-  await test('Test A — 60Hz local prediction simulation rate', async () => {
+  // TEST 1: 30Hz network input vs 60Hz simulation timing
+  await test('TEST 1 — Reconciliation simulates tick interval (C - S), not input array count', () => {
     const pred = new Prediction();
-    pred.init({ x: 200, y: 300 });
+    pred.init({ x: 200, y: 300 }, 0);
 
-    const mockInputManager = {
-      getInput: () => ({ left: false, right: true, up: false, down: false })
-    };
-
-    pred.start(mockInputManager);
-    await new Promise(r => setTimeout(r, 500)); // 500ms
-    pred.stop();
-
-    // In 500ms at 60Hz, prediction should tick ~30 times (expect 25 to 35 steps)
-    const distanceMoved = pred.predictedPosition.x - 200;
-    const expectedStepDist = PLAYER_SPEED * FIXED_DT; // 4.1667px
-    const stepsCount = distanceMoved / expectedStepDist;
-
-    assert(stepsCount >= 25 && stepsCount <= 35, `Expected ~30 prediction ticks in 500ms, got ${stepsCount.toFixed(1)} ticks`);
-  });
-
-  // Test B — Movement speed accuracy per tick
-  await test('Test B — Prediction tick advances by exactly (PLAYER_SPEED * FIXED_DT)', () => {
-    const pred = new Prediction();
-    pred.init({ x: 200, y: 300 });
-    const mockInputManager = {
-      getInput: () => ({ left: false, right: true, up: false, down: false })
-    };
+    const rightInput = { up: false, down: false, left: false, right: true };
+    const mockInputManager = { getInput: () => rightInput };
     pred.inputManagerRef = mockInputManager;
-    pred.tickPrediction();
 
-    const expectedX = 200 + (250 / 60);
-    assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `Single prediction tick should advance to ${expectedX}, got ${pred.predictedPosition.x}`);
-  });
-
-  // Test C — Current playerId ACK extraction (resolving closure staleness)
-  await test('Test C — Snapshot handler extracts ACK for dynamic local playerId', () => {
-    const ns = new NetworkState();
-
-    const snapshot1 = {
-      tick: 10,
-      players: [
-        { id: 'player-a', lastProcessedInput: 105 },
-        { id: 'player-b', lastProcessedInput: 99 }
-      ]
-    };
-
-    // Initially local player ID is null -> does not set ACK
-    ns.handleSnapshot(snapshot1, null);
-    assert(ns.lastAcknowledgedInput === 0, 'Null local player ID should not update ACK');
-
-    const snapshot2 = {
-      tick: 11,
-      players: [
-        { id: 'player-a', lastProcessedInput: 105 },
-        { id: 'player-b', lastProcessedInput: 99 }
-      ]
-    };
-
-    // When local player ID is dynamically supplied as "player-a"
-    const handled = ns.handleSnapshot(snapshot2, 'player-a');
-    assert(handled, 'Snapshot should be accepted');
-    assert(ns.lastAcknowledgedInput === 105, `Local player ACK should be 105, got ${ns.lastAcknowledgedInput}`);
-  });
-
-  // Test D — Pending inputs storage without double simulation on addInput
-  await test('Test D — addInput stores pending input command without advancing simulation step', () => {
-    const pred = new Prediction();
-    pred.init({ x: 200, y: 300 });
-
-    pred.addInput(1, { left: false, right: true, up: false, down: false });
-    assert(pred.getPendingCount() === 1, 'Pending count should be 1');
-    assert(pred.predictedPosition.x === 200, 'addInput must NOT advance predicted position directly');
-  });
-
-  // Test E — Reconciliation correctness (authoritative pos + ACK + unacked replay)
-  await test('Test E — Reconciliation prunes ACKed inputs and replays remaining unacked commands', () => {
-    const pred = new Prediction();
-    pred.init({ x: 200, y: 300 });
-
-    // Store inputs #1 through #5
-    for (let i = 1; i <= 5; i++) {
-      pred.addInput(i, { left: false, right: true, up: false, down: false });
+    // Simulate 60 prediction ticks (localTick = 60)
+    for (let i = 0; i < 60; i++) {
+      pred.tickPrediction();
+    }
+    // Store only 30 network input commands (simulating 30Hz network stream)
+    for (let seq = 1; seq <= 30; seq++) {
+      pred.addInput(seq, rightInput);
     }
 
-    // Reconcile with server position at step 3 (200 + 3 * (250/60)), ACK = 3
-    const authX = 200 + 3 * (PLAYER_SPEED * FIXED_DT);
-    pred.reconcile({ x: authX, y: 300 }, 3);
+    // Reconcile with snapshot at serverTick = 30 (server position = 200 + 30 * (250/60) = 325)
+    const serverTick = 30;
+    const authX = 200 + serverTick * (PLAYER_SPEED * FIXED_DT); // 325
+    pred.reconcile({ x: authX, y: 300 }, serverTick, 15);
 
-    // Inputs 1..3 pruned, 2 remaining (#4, #5)
-    assert(pred.getPendingCount() === 2, `Should have 2 remaining inputs, got ${pred.getPendingCount()}`);
-
-    const expectedX = 200 + 5 * (PLAYER_SPEED * FIXED_DT);
-    assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `Reconstructed predicted position should be ${expectedX}, got ${pred.predictedPosition.x}`);
+    // Should replay ticks 31..60 (30 ticks), resulting in 200 + 60 * (250/60) = 450
+    const expectedX = 200 + 60 * (PLAYER_SPEED * FIXED_DT); // 450
+    assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `Reconciliation should reach ${expectedX}, got ${pred.predictedPosition.x}`);
   });
 
-  console.log('\n── Integration Tests: End-to-End Game Start & ACK Extraction ──\n');
+  // TEST 2: Sustained movement
+  await test('TEST 2 — Sustained movement (1 sec = 60 ticks = 250px displacement)', () => {
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 }, 0);
 
-  // Test F — End-to-End integration game start & snapshot ACK
-  await test('Test F — End-to-End integration: SNAPSHOT lastProcessedInput ACK extraction', async () => {
+    const rightInput = { up: false, down: false, left: false, right: true };
+    pred.inputManagerRef = { getInput: () => rightInput };
+
+    for (let i = 0; i < 60; i++) {
+      pred.tickPrediction();
+    }
+
+    const authPos = { x: 200 + 40 * (PLAYER_SPEED * FIXED_DT), y: 300 }; // 40 ticks = 366.67
+    pred.reconcile(authPos, 40, 20);
+
+    // Replayed 20 remaining ticks -> total 60 ticks = 450
+    const expectedX = 200 + 250; // 450
+    assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `Sustained movement expected ${expectedX}, got ${pred.predictedPosition.x}`);
+  });
+
+  // TEST 3: Input changes timeline
+  await test('TEST 3 — Input changes timeline (RIGHT -> DOWN+RIGHT -> LEFT)', () => {
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 }, 0);
+
+    let currentInput = { up: false, down: false, left: false, right: true };
+    pred.inputManagerRef = { getInput: () => currentInput };
+
+    // Ticks 1..20: RIGHT
+    for (let i = 0; i < 20; i++) pred.tickPrediction();
+
+    // Ticks 21..40: DOWN+RIGHT
+    currentInput = { up: false, down: true, left: false, right: true };
+    for (let i = 0; i < 20; i++) pred.tickPrediction();
+
+    // Ticks 41..60: LEFT
+    currentInput = { up: false, down: false, left: true, right: false };
+    for (let i = 0; i < 20; i++) pred.tickPrediction();
+
+    const expectedPosAt60 = { ...pred.predictedPosition };
+
+    // Reconcile at serverTick = 20 with auth position at tick 20
+    const posAt20 = { x: 200 + 20 * (PLAYER_SPEED * FIXED_DT), y: 300 };
+    pred.reconcile(posAt20, 20, 10);
+
+    assert(Math.abs(pred.predictedPosition.x - expectedPosAt60.x) < 0.0001, `X after timeline replay expected ${expectedPosAt60.x}, got ${pred.predictedPosition.x}`);
+    assert(Math.abs(pred.predictedPosition.y - expectedPosAt60.y) < 0.0001, `Y after timeline replay expected ${expectedPosAt60.y}, got ${pred.predictedPosition.y}`);
+  });
+
+  // TEST 4: ACK sequence pruning
+  await test('TEST 4 — ACK sequence pruning', () => {
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 }, 0);
+    for (let i = 101; i <= 105; i++) {
+      pred.addInput(i, { up: false, down: false, left: false, right: true });
+    }
+
+    pred.reconcile({ x: 200, y: 300 }, 0, 103);
+    assert(pred.getPendingCount() === 2, `Inputs <= 103 should be pruned (expected 2 remaining, got ${pred.getPendingCount()})`);
+  });
+
+  // TEST 5: ACK newest input (S = C)
+  await test('TEST 5 — ACK newest input (serverTick = localTick -> predicted equals auth position)', () => {
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 }, 0);
+    pred.inputManagerRef = { getInput: () => ({ up: false, down: false, left: false, right: true }) };
+
+    for (let i = 0; i < 10; i++) pred.tickPrediction();
+
+    const authPos = { x: 500, y: 500 };
+    pred.reconcile(authPos, 10, 10);
+
+    assert(pred.predictedPosition.x === 500 && pred.predictedPosition.y === 500, `When S = C, predicted position should snap to auth position (500, 500), got (${pred.predictedPosition.x}, ${pred.predictedPosition.y})`);
+  });
+
+  // TEST 6: No pending inputs / stationary player
+  await test('TEST 6 — Stationary player reconciliation does not drift', () => {
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 }, 0);
+    pred.inputManagerRef = { getInput: () => ({ up: false, down: false, left: false, right: false }) };
+
+    for (let i = 0; i < 30; i++) pred.tickPrediction();
+
+    pred.reconcile({ x: 200, y: 300 }, 15, 0);
+    assert(pred.predictedPosition.x === 200 && pred.predictedPosition.y === 300, `Stationary player should remain at (200, 300), got (${pred.predictedPosition.x}, ${pred.predictedPosition.y})`);
+  });
+
+  // TEST 7: Repeated snapshots
+  await test('TEST 7 — Repeated snapshots cause no runaway movement or accumulating drift', () => {
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 }, 0);
+    pred.inputManagerRef = { getInput: () => ({ up: false, down: false, left: false, right: true }) };
+
+    for (let i = 0; i < 60; i++) pred.tickPrediction();
+
+    const authPos1 = { x: 200 + 40 * (PLAYER_SPEED * FIXED_DT), y: 300 };
+    pred.reconcile(authPos1, 40, 20);
+    const xAfterFirst = pred.predictedPosition.x;
+
+    const authPos2 = { x: 200 + 50 * (PLAYER_SPEED * FIXED_DT), y: 300 };
+    pred.reconcile(authPos2, 50, 25);
+    const xAfterSecond = pred.predictedPosition.x;
+
+    assert(Math.abs(xAfterFirst - xAfterSecond) < 0.0001, `Repeated snapshot reconciliation should remain stable (${xAfterFirst} vs ${xAfterSecond})`);
+  });
+
+  // TEST 8: Diagonal movement
+  await test('TEST 8 — Diagonal movement reconciliation preserves vector normalization', () => {
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 }, 0);
+    const diagInput = { up: true, down: false, left: false, right: true };
+    pred.inputManagerRef = { getInput: () => diagInput };
+
+    for (let i = 0; i < 60; i++) pred.tickPrediction();
+
+    const expectedX = 200 + 60 * (PLAYER_SPEED * (1 / Math.sqrt(2)) * FIXED_DT);
+    const expectedY = 300 - 60 * (PLAYER_SPEED * (1 / Math.sqrt(2)) * FIXED_DT);
+
+    const authPos = { x: 200 + 30 * (PLAYER_SPEED * (1 / Math.sqrt(2)) * FIXED_DT), y: 300 - 30 * (PLAYER_SPEED * (1 / Math.sqrt(2)) * FIXED_DT) };
+    pred.reconcile(authPos, 30, 15);
+
+    assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `Diagonal X expected ${expectedX}, got ${pred.predictedPosition.x}`);
+    assert(Math.abs(pred.predictedPosition.y - expectedY) < 0.0001, `Diagonal Y expected ${expectedY}, got ${pred.predictedPosition.y}`);
+  });
+
+  console.log('\n── Integration Tests: End-to-End Game Start & Tick Reconciliation ──\n');
+
+  // TEST 9: End-to-End integration test
+  await test('TEST 9 — End-to-End integration: SNAPSHOT tick reconciliation', async () => {
     const { wsA, wsB, gameA } = await createAndStartGame();
     const playerIdA = gameA.yourPlayerId;
     await drain(wsA, 100);
@@ -222,6 +283,7 @@ async function runTests() {
     const pA = snapshot.players.find(p => p.id === playerIdA);
 
     assert(pA.lastProcessedInput >= seq, `Server ACK (${pA.lastProcessedInput}) should be >= ${seq}`);
+    assert(typeof snapshot.tick === 'number' && snapshot.tick > 0, `Snapshot tick must be a positive number, got ${snapshot.tick}`);
 
     wsA.close();
     wsB.close();

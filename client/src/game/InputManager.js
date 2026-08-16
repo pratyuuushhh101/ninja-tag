@@ -1,22 +1,34 @@
 import { wsClient } from '../network/WebSocketClient.js';
-import { CLIENT_MESSAGES } from '../../../shared/protocol/constants.js';
+import { networkState } from '../network/NetworkState.js';
+import { CLIENT_MESSAGES, INPUT_INTERVAL_MS } from '../../../shared/protocol/constants.js';
 
 export class InputManager {
   constructor() {
     this.input = { up: false, down: false, left: false, right: false };
+    this.heartbeatId = null;
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
+    this.sendInput = this.sendInput.bind(this);
   }
 
   start() {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
+
+    // Start 30Hz controlled input heartbeat loop (~33.33ms)
+    this.heartbeatId = setInterval(this.sendInput, INPUT_INTERVAL_MS);
   }
 
   stop() {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
-    // Reset input
+
+    if (this.heartbeatId) {
+      clearInterval(this.heartbeatId);
+      this.heartbeatId = null;
+    }
+
+    // Reset input state
     this.input = { up: false, down: false, left: false, right: false };
   }
 
@@ -52,8 +64,12 @@ export class InputManager {
   }
 
   sendInput() {
+    if (!wsClient.isConnected()) return;
+
+    const sequence = networkState.getNextInputSequence();
     wsClient.send({
       type: CLIENT_MESSAGES.INPUT,
+      sequence,
       input: { ...this.input }
     });
   }

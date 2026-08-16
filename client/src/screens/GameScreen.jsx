@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import GameCanvas from '../components/GameCanvas.jsx';
 import { InputManager } from '../game/InputManager.js';
+import { networkState } from '../network/NetworkState.js';
 
 export default function GameScreen({ roomCode, playerId, gameState, arena, onLeave, gameEndReason }) {
   const inputManagerRef = useRef(null);
@@ -23,12 +24,15 @@ export default function GameScreen({ roomCode, playerId, gameState, arena, onLea
 
   return (
     <div style={{ position: 'relative' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', backgroundColor: '#222', color: '#fff', borderRadius: '4px 4px 0 0' }}>
         <div>
-          <span>ROOM: {roomCode}</span>
-          <span style={{ marginLeft: '20px' }}>YOU: <strong>{roleText}</strong></span>
+          <span>ROOM: <strong>{roomCode}</strong></span>
+          <span style={{ marginLeft: '20px' }}>YOU: <strong style={{ color: isIt ? '#ff8800' : '#4488ff' }}>{roleText}</strong></span>
+          <span style={{ marginLeft: '20px', fontSize: '12px', color: '#aaa' }}>
+            TICK: {gameState?.tick ?? networkState.latestServerTick} | ACK: {networkState.lastAcknowledgedInput} | SENT SEQ: {networkState.nextInputSequence}
+          </span>
         </div>
-        <button onClick={onLeave} style={{ padding: '5px 15px' }}>Leave Game</button>
+        <button onClick={onLeave} style={{ padding: '5px 15px', cursor: 'pointer' }}>Leave Game</button>
       </div>
 
       <GameCanvas
@@ -49,7 +53,7 @@ export default function GameScreen({ roomCode, playerId, gameState, arena, onLea
           color: 'white'
         }}>
           <h2>Opponent disconnected.</h2>
-          <button onClick={onLeave} style={{ padding: '10px 20px', marginTop: '20px', fontSize: '16px' }}>
+          <button onClick={onLeave} style={{ padding: '10px 20px', marginTop: '20px', fontSize: '16px', cursor: 'pointer' }}>
             Return to Menu
           </button>
         </div>

@@ -4,11 +4,11 @@ import JoinScreen from './screens/JoinScreen.jsx';
 import LobbyScreen from './screens/LobbyScreen.jsx';
 import GameScreen from './screens/GameScreen.jsx';
 import { wsClient } from './network/WebSocketClient.js';
+import { networkState } from './network/NetworkState.js';
 import {
   CLIENT_MESSAGES,
   SERVER_MESSAGES,
-  ROOM_STATES,
-  MAX_PLAYERS_PER_ROOM
+  ROOM_STATES
 } from '../../shared/protocol/constants.js';
 
 export default function App() {
@@ -18,6 +18,7 @@ export default function App() {
   const [playerCount, setPlayerCount] = useState(0);
   const [roomState, setRoomState] = useState(null);
   const [error, setError] = useState(null);
+
   // Game state
   const [gameState, setGameState] = useState(null);
   const [arena, setArena] = useState(null);
@@ -38,6 +39,7 @@ export default function App() {
           setScreen('lobby');
           setError(null);
           break;
+
         case SERVER_MESSAGES.ROOM_JOINED:
           setRoomCode(msg.roomCode);
           setPlayerId(msg.playerId);
@@ -46,26 +48,37 @@ export default function App() {
           setScreen('lobby');
           setError(null);
           break;
+
         case SERVER_MESSAGES.ROOM_STATE:
           setPlayerCount(msg.playerCount);
           setRoomState(msg.roomState);
           break;
+
         case SERVER_MESSAGES.GAME_STARTED:
+          networkState.reset();
           setPlayerId(msg.yourPlayerId);
           setArena(msg.arena);
-          setGameState({ players: msg.players, itPlayerId: msg.itPlayerId });
+          setGameState({ players: msg.players, itPlayerId: msg.itPlayerId, tick: 0 });
           setGameEndReason(null);
           setScreen('game');
           break;
+
+        case SERVER_MESSAGES.SNAPSHOT:
         case SERVER_MESSAGES.GAME_STATE:
-          setGameState({ players: msg.players, itPlayerId: msg.itPlayerId });
+          // Feed to NetworkState which validates ticks & input ACKs
+          if (networkState.handleSnapshot(msg, playerId)) {
+            setGameState(networkState.getLatestSnapshot());
+          }
           break;
+
         case SERVER_MESSAGES.GAME_ENDED:
           setGameEndReason(msg.reason);
           break;
+
         case SERVER_MESSAGES.ERROR:
           setError(msg.message || 'An error occurred');
           break;
+
         default:
           console.warn('Unknown message type', msg.type);
       }
@@ -76,6 +89,7 @@ export default function App() {
     });
 
     wsClient.onClose(() => {
+      networkState.reset();
       setScreen('landing');
       setRoomCode(null);
       setPlayerId(null);
@@ -85,7 +99,7 @@ export default function App() {
       setArena(null);
       setGameEndReason(null);
     });
-  }, []);
+  }, [playerId]);
 
   const handleCreateGame = async () => {
     setError(null);
@@ -119,6 +133,7 @@ export default function App() {
 
   const handleLeaveGame = () => {
     wsClient.disconnect();
+    networkState.reset();
     setScreen('landing');
     setRoomCode(null);
     setPlayerId(null);

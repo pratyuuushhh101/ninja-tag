@@ -11,11 +11,16 @@ export default function GameScreen({ roomCode, playerId, gameState, arena, onLea
     if (!gameEndReason) {
       const im = new InputManager();
       im.start();
+      prediction.start(im);
       inputManagerRef.current = im;
+
       return () => {
+        prediction.stop();
         im.stop();
         inputManagerRef.current = null;
       };
+    } else {
+      prediction.stop();
     }
   }, [gameEndReason]);
 

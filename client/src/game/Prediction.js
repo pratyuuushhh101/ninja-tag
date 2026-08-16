@@ -4,7 +4,7 @@ import { FIXED_DT } from '../../../shared/protocol/constants.js';
 /**
  * Client Prediction & Server Reconciliation Engine
  *
- * Predicts local player movement immediately on key press (zero latency),
+ * Runs local player prediction independently at a fixed 60Hz simulation cadence,
  * stores unacknowledged inputs in a pending history queue, and reconciles
  * local predicted position with authoritative server snapshots.
  */
@@ -14,6 +14,9 @@ export class Prediction {
     this.authoritativePosition = null;
     this.predictedPosition = null;
     this.maxPendingInputs = 500; // Defensive safety cap
+    this.predictionIntervalId = null;
+    this.inputManagerRef = null;
+    this.tickPrediction = this.tickPrediction.bind(this);
   }
 
   init(initialPosition) {
@@ -22,15 +25,50 @@ export class Prediction {
     this.predictedPosition = initialPosition ? { ...initialPosition } : { x: 200, y: 300 };
   }
 
+  start(inputManager) {
+    this.inputManagerRef = inputManager;
+
+    if (this.predictionIntervalId) {
+      clearInterval(this.predictionIntervalId);
+    }
+
+    // Fixed 60Hz local prediction simulation loop (~16.67ms)
+    this.predictionIntervalId = setInterval(this.tickPrediction, 1000 / 60);
+  }
+
+  stop() {
+    if (this.predictionIntervalId) {
+      clearInterval(this.predictionIntervalId);
+      this.predictionIntervalId = null;
+    }
+    this.inputManagerRef = null;
+  }
+
   reset() {
+    this.stop();
     this.pendingInputs = [];
     this.authoritativePosition = null;
     this.predictedPosition = null;
   }
 
   /**
-   * Adds a newly generated input command to pending history and predicts
-   * local movement step immediately.
+   * 60Hz prediction tick callback.
+   * Reads current local input state and advances predicted local position.
+   */
+  tickPrediction() {
+    if (!this.predictedPosition) return;
+
+    const currentInput = this.inputManagerRef
+      ? this.inputManagerRef.getInput()
+      : { up: false, down: false, left: false, right: false };
+
+    // Advance predicted position by exactly one FIXED_DT step
+    this.predictedPosition = simulatePlayerMovement(this.predictedPosition, currentInput, FIXED_DT);
+  }
+
+  /**
+   * Stores an immutable input command into pending history queue for reconciliation replay.
+   * Does NOT advance simulation directly — simulation runs at 60Hz in tickPrediction.
    *
    * @param {number} sequence - Monotonically increasing sequence number
    * @param {Object} inputState - Input command state { up, down, left, right }
@@ -56,9 +94,6 @@ export class Prediction {
       console.warn(`[NinjaTag] Pending input queue exceeded ${this.maxPendingInputs}, trimming oldest.`);
       this.pendingInputs.shift();
     }
-
-    // Predict local movement step immediately
-    this.predictedPosition = simulatePlayerMovement(this.predictedPosition, cmd.input, FIXED_DT);
   }
 
   /**

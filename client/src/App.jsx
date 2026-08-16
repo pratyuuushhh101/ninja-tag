@@ -20,6 +20,12 @@ export default function App() {
   const [roomState, setRoomState] = useState(null);
   const [error, setError] = useState(null);
 
+  // Ref to ensure single WebSocket event handler always sees the current local player ID
+  const playerIdRef = useRef(playerId);
+  useEffect(() => {
+    playerIdRef.current = playerId;
+  }, [playerId]);
+
   // Game & Render state
   const [gameState, setGameState] = useState(null);
   const [arena, setArena] = useState(null);
@@ -31,8 +37,11 @@ export default function App() {
     handlersSet.current = true;
 
     wsClient.onMessage((msg) => {
+      const currentLocalId = playerIdRef.current;
+
       switch (msg.type) {
         case SERVER_MESSAGES.ROOM_CREATED:
+          playerIdRef.current = msg.playerId;
           setRoomCode(msg.roomCode);
           setPlayerId(msg.playerId);
           setPlayerCount(msg.playerCount);
@@ -42,6 +51,7 @@ export default function App() {
           break;
 
         case SERVER_MESSAGES.ROOM_JOINED:
+          playerIdRef.current = msg.playerId;
           setRoomCode(msg.roomCode);
           setPlayerId(msg.playerId);
           setPlayerCount(msg.playerCount);
@@ -57,6 +67,7 @@ export default function App() {
 
         case SERVER_MESSAGES.GAME_STARTED: {
           const localId = msg.yourPlayerId;
+          playerIdRef.current = localId;
           networkState.reset();
 
           // Initialize local player prediction state with initial spawn coordinates
@@ -73,10 +84,12 @@ export default function App() {
 
         case SERVER_MESSAGES.SNAPSHOT:
         case SERVER_MESSAGES.GAME_STATE: {
-          // Process authoritative snapshot in NetworkState (validates tick & extracts ACK)
-          if (networkState.handleSnapshot(msg, playerId)) {
+          const activeLocalId = playerIdRef.current;
+
+          // Process authoritative snapshot in NetworkState (validates tick & extracts ACK for activeLocalId)
+          if (networkState.handleSnapshot(msg, activeLocalId)) {
             const snapshot = networkState.getLatestSnapshot();
-            const localAuth = snapshot.players.find(p => p.id === playerId);
+            const localAuth = snapshot.players.find(p => p.id === activeLocalId);
 
             // Reconcile local prediction: reset to server (x, y) & replay unacknowledged pending inputs
             if (localAuth) {
@@ -84,7 +97,7 @@ export default function App() {
             }
 
             // Update state with composed render payload (local = predicted, remote = authoritative)
-            setGameState(prediction.getRenderState(snapshot, playerId));
+            setGameState(prediction.getRenderState(snapshot, activeLocalId));
           }
           break;
         }
@@ -109,6 +122,7 @@ export default function App() {
     wsClient.onClose(() => {
       networkState.reset();
       prediction.reset();
+      playerIdRef.current = null;
       setScreen('landing');
       setRoomCode(null);
       setPlayerId(null);
@@ -118,7 +132,7 @@ export default function App() {
       setArena(null);
       setGameEndReason(null);
     });
-  }, [playerId]);
+  }, []);
 
   const handleCreateGame = async () => {
     setError(null);
@@ -154,6 +168,7 @@ export default function App() {
     wsClient.disconnect();
     networkState.reset();
     prediction.reset();
+    playerIdRef.current = null;
     setScreen('landing');
     setRoomCode(null);
     setPlayerId(null);

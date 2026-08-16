@@ -33,6 +33,10 @@ export class InputManager {
     this.input = { up: false, down: false, left: false, right: false };
   }
 
+  getInput() {
+    return { ...this.input };
+  }
+
   handleKeyDown(e) {
     if (this.updateKey(e.key, true)) {
       this.sendInput();
@@ -70,10 +74,10 @@ export class InputManager {
     const sequence = networkState.getNextInputSequence();
     const inputCopy = { ...this.input };
 
-    // 1. Predict local movement step immediately & store in pending queue
+    // 1. Register input command with sequence number into pending queue for reconciliation
     prediction.addInput(sequence, inputCopy);
 
-    // 2. Transmit to server over WebSocket
+    // 2. Transmit ~30Hz network message over WebSocket
     wsClient.send({
       type: CLIENT_MESSAGES.INPUT,
       sequence,

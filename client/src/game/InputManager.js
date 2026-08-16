@@ -1,35 +1,25 @@
-import { wsClient } from '../network/WebSocketClient.js';
-import { networkState } from '../network/NetworkState.js';
-import { prediction } from './Prediction.js';
-import { CLIENT_MESSAGES, INPUT_INTERVAL_MS } from '../../../shared/protocol/constants.js';
-
+/**
+ * InputManager — Captures keyboard events and maintains current input state
+ *
+ * Keyboard events (keydown/keyup) ONLY update the current input state.
+ * They do NOT trigger network message transmission directly.
+ * The 60Hz Prediction loop samples this state every FIXED_DT tick.
+ */
 export class InputManager {
   constructor() {
     this.input = { up: false, down: false, left: false, right: false };
-    this.heartbeatId = null;
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
-    this.sendInput = this.sendInput.bind(this);
   }
 
   start() {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
-
-    // Start 30Hz controlled input heartbeat loop (~33.33ms)
-    this.heartbeatId = setInterval(this.sendInput, INPUT_INTERVAL_MS);
   }
 
   stop() {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
-
-    if (this.heartbeatId) {
-      clearInterval(this.heartbeatId);
-      this.heartbeatId = null;
-    }
-
-    // Reset input state
     this.input = { up: false, down: false, left: false, right: false };
   }
 
@@ -38,15 +28,11 @@ export class InputManager {
   }
 
   handleKeyDown(e) {
-    if (this.updateKey(e.key, true)) {
-      this.sendInput();
-    }
+    this.updateKey(e.key, true);
   }
 
   handleKeyUp(e) {
-    if (this.updateKey(e.key, false)) {
-      this.sendInput();
-    }
+    this.updateKey(e.key, false);
   }
 
   updateKey(key, pressed) {
@@ -66,22 +52,5 @@ export class InputManager {
         break;
     }
     return changed;
-  }
-
-  sendInput() {
-    if (!wsClient.isConnected()) return;
-
-    const sequence = networkState.getNextInputSequence();
-    const inputCopy = { ...this.input };
-
-    // 1. Register input command with sequence number into pending queue for reconciliation
-    prediction.addInput(sequence, inputCopy);
-
-    // 2. Transmit ~30Hz network message over WebSocket
-    wsClient.send({
-      type: CLIENT_MESSAGES.INPUT,
-      sequence,
-      input: inputCopy
-    });
   }
 }

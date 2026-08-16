@@ -68,11 +68,10 @@ export default function App() {
           playerIdRef.current = localId;
           networkState.reset();
 
-          // Initialize local player prediction state with initial spawn coordinates and start tick
+          // Initialize local player prediction state with initial spawn coordinates
           const localInitialState = msg.players ? msg.players.find(p => p.id === localId) : null;
           prediction.init(
-            localInitialState ? { x: localInitialState.x, y: localInitialState.y } : { x: 200, y: 300 },
-            msg.tick || 0
+            localInitialState ? { x: localInitialState.x, y: localInitialState.y } : { x: 200, y: 300 }
           );
 
           setPlayerId(localId);
@@ -92,11 +91,10 @@ export default function App() {
             const snapshot = networkState.getLatestSnapshot();
             const localAuth = snapshot.players.find(p => p.id === activeLocalId);
 
-            // Reconcile local prediction: reset to server (x, y) at snapshot.tick & replay unacknowledged 60Hz tick timeline
+            // Reconcile local prediction: reset to server (x, y) & replay unacknowledged pending inputs
             if (localAuth) {
               prediction.reconcile(
                 { x: localAuth.x, y: localAuth.y },
-                snapshot.tick,
                 networkState.lastAcknowledgedInput
               );
             }

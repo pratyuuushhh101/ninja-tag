@@ -20,6 +20,7 @@ export const SERVER_MESSAGES = Object.freeze({
   ERROR: 'ERROR',
   GAME_STARTED: 'GAME_STARTED',
   GAME_STATE: 'GAME_STATE',
+  SNAPSHOT: 'SNAPSHOT',
   GAME_ENDED: 'GAME_ENDED',
 });
 
@@ -50,12 +51,21 @@ export const ROOM_CODE_LENGTH = 5;
 // ── Room capacity ──────────────────────────────────────────────────────
 export const MAX_PLAYERS_PER_ROOM = 2;
 
-// ── Game constants ─────────────────────────────────────────────────────
+// ── Game & Simulation constants ────────────────────────────────────────
 export const ARENA_WIDTH = 1000;
 export const ARENA_HEIGHT = 600;
 export const PLAYER_RADIUS = 20;
 export const PLAYER_SPEED = 250; // pixels per second
-export const SERVER_TICK_RATE = 60; // updates per second
+
+export const SERVER_TICK_RATE = 60; // 60 updates per second
+export const FIXED_DT = 1 / SERVER_TICK_RATE; // 0.0166667 seconds per tick
+export const MAX_FRAME_TIME = 0.25; // seconds (protection against spiral of death)
+
+export const SNAPSHOT_SEND_RATE = 20; // 20 snapshots per second
+export const SNAPSHOT_INTERVAL_MS = 1000 / SNAPSHOT_SEND_RATE; // 50 ms
+
+export const INPUT_SEND_RATE = 30; // 30 input commands per second
+export const INPUT_INTERVAL_MS = 1000 / INPUT_SEND_RATE; // ~33.33 ms
 
 // ── Game-ended reason codes ────────────────────────────────────────────
 export const GAME_END_REASONS = Object.freeze({

@@ -1,4 +1,4 @@
-import { CLIENT_MESSAGES, SERVER_MESSAGES, ERROR_CODES, ROOM_CODE_CHARSET, ROOM_CODE_LENGTH, ROOM_STATES } from '../../../shared/protocol/constants.js';
+import { CLIENT_MESSAGES, SERVER_MESSAGES, ERROR_CODES, ROOM_CODE_CHARSET, ROOM_CODE_LENGTH, ROOM_STATES, VALID_INPUT_KEYS } from '../../../shared/protocol/constants.js';
 
 function sendMessage(ws, message) {
   if (ws.readyState === 1 /* WebSocket.OPEN */) {
@@ -77,6 +77,11 @@ function handleJoinRoom(ws, message, roomManager) {
       playerCount: room.getPlayerCount()
     });
 
+    // If room is now full, start the game
+    if (room.state === ROOM_STATES.FULL) {
+      roomManager.startGame(roomCode);
+    }
+
   } catch (err) {
     if (err.code) {
       sendError(ws, err.code, err.message);
@@ -85,6 +90,37 @@ function handleJoinRoom(ws, message, roomManager) {
       sendError(ws, ERROR_CODES.INVALID_STATE, 'An error occurred while joining the room.');
     }
   }
+}
+
+function handleInput(ws, message, roomManager) {
+  const context = roomManager.getContext(ws);
+  if (!context) {
+    return sendError(ws, ERROR_CODES.INVALID_STATE, 'Not in a room.');
+  }
+
+  const { roomCode, playerId } = context;
+  const room = roomManager.rooms.get(roomCode);
+
+  if (!room || room.state !== ROOM_STATES.PLAYING || !room.game) {
+    return sendError(ws, ERROR_CODES.INVALID_STATE, 'Game is not active.');
+  }
+
+  // Validate input
+  const input = message.input;
+  if (!input || typeof input !== 'object') {
+    return sendError(ws, ERROR_CODES.INVALID_INPUT, 'Missing input field.');
+  }
+
+  // Validate each key is a boolean and only valid keys exist
+  const validatedInput = {};
+  for (const key of VALID_INPUT_KEYS) {
+    if (typeof input[key] !== 'boolean') {
+      return sendError(ws, ERROR_CODES.INVALID_INPUT, `Invalid input: ${key} must be a boolean.`);
+    }
+    validatedInput[key] = input[key];
+  }
+
+  room.game.setPlayerInput(playerId, validatedInput);
 }
 
 export function handleMessage(ws, rawData, roomManager) {
@@ -105,6 +141,9 @@ export function handleMessage(ws, rawData, roomManager) {
       break;
     case CLIENT_MESSAGES.JOIN_ROOM:
       handleJoinRoom(ws, message, roomManager);
+      break;
+    case CLIENT_MESSAGES.INPUT:
+      handleInput(ws, message, roomManager);
       break;
     default:
       sendError(ws, ERROR_CODES.INVALID_MESSAGE, `Unknown message type: ${message.type}`);

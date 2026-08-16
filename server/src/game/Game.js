@@ -1,0 +1,103 @@
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_RADIUS, PLAYER_SPEED, VALID_INPUT_KEYS } from '../../../shared/protocol/constants.js';
+
+export class Game {
+  constructor() {
+    this.players = new Map(); // playerId -> { id, x, y, input: {up,down,left,right} }
+    this.itPlayerId = null;
+    this.arena = { width: ARENA_WIDTH, height: ARENA_HEIGHT };
+    this.tagLocked = false; // prevents tag flickering
+  }
+
+  initialize(playerIds) {
+    // Spawn player 1 at left, player 2 at right
+    const ids = Array.from(playerIds);
+    this.players.set(ids[0], {
+      id: ids[0],
+      x: 200,
+      y: this.arena.height / 2,
+      input: { up: false, down: false, left: false, right: false }
+    });
+    this.players.set(ids[1], {
+      id: ids[1],
+      x: 800,
+      y: this.arena.height / 2,
+      input: { up: false, down: false, left: false, right: false }
+    });
+    // Randomly assign IT
+    this.itPlayerId = Math.random() < 0.5 ? ids[0] : ids[1];
+  }
+
+  setPlayerInput(playerId, input) {
+    const player = this.players.get(playerId);
+    if (player) {
+      player.input = input;
+    }
+  }
+
+  update(deltaTime) {
+    // Update movement for each player
+    for (const [, player] of this.players) {
+      this.updatePlayerMovement(player, deltaTime);
+    }
+    // Check tag collision
+    this.checkTagCollision();
+  }
+
+  updatePlayerMovement(player, deltaTime) {
+    let dx = 0;
+    let dy = 0;
+    if (player.input.left) dx -= 1;
+    if (player.input.right) dx += 1;
+    if (player.input.up) dy -= 1;
+    if (player.input.down) dy += 1;
+
+    // Normalize diagonal movement
+    if (dx !== 0 && dy !== 0) {
+      const len = Math.sqrt(dx * dx + dy * dy);
+      dx /= len;
+      dy /= len;
+    }
+
+    player.x += dx * PLAYER_SPEED * deltaTime;
+    player.y += dy * PLAYER_SPEED * deltaTime;
+
+    // Clamp to arena boundaries
+    player.x = Math.max(PLAYER_RADIUS, Math.min(this.arena.width - PLAYER_RADIUS, player.x));
+    player.y = Math.max(PLAYER_RADIUS, Math.min(this.arena.height - PLAYER_RADIUS, player.y));
+  }
+
+  checkTagCollision() {
+    const playerArray = Array.from(this.players.values());
+    if (playerArray.length !== 2) return;
+
+    const [p1, p2] = playerArray;
+    const dx = p1.x - p2.x;
+    const dy = p1.y - p2.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const touching = distance <= PLAYER_RADIUS * 2;
+
+    if (touching && !this.tagLocked) {
+      // Transfer IT
+      const itPlayer = this.itPlayerId === p1.id ? p1 : p2;
+      const otherPlayer = this.itPlayerId === p1.id ? p2 : p1;
+      this.itPlayerId = otherPlayer.id;
+      this.tagLocked = true;
+      console.log(`[NinjaTag] Tag! ${itPlayer.id} tagged ${otherPlayer.id}`);
+    } else if (!touching && this.tagLocked) {
+      // Players separated, unlock tag
+      this.tagLocked = false;
+    }
+  }
+
+  getState() {
+    const players = [];
+    for (const [, player] of this.players) {
+      players.push({ id: player.id, x: player.x, y: player.y });
+    }
+    return { players, itPlayerId: this.itPlayerId };
+  }
+
+  removePlayer(playerId) {
+    this.players.delete(playerId);
+  }
+}

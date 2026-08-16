@@ -6,6 +6,7 @@ export class Room {
     this.players = new Map();
     this.state = ROOM_STATES.WAITING_FOR_PLAYER;
     this.createdAt = Date.now();
+    this.game = null;
   }
 
   addPlayer(playerId, ws) {
@@ -21,8 +22,10 @@ export class Room {
 
   removePlayer(playerId) {
     const removed = this.players.delete(playerId);
-    if (removed && !this.isFull()) {
-      this.state = ROOM_STATES.WAITING_FOR_PLAYER;
+    if (removed && this.state !== ROOM_STATES.PLAYING && this.state !== ROOM_STATES.ENDED) {
+      if (!this.isFull()) {
+        this.state = ROOM_STATES.WAITING_FOR_PLAYER;
+      }
     }
     return removed;
   }

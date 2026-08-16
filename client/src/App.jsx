@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import LandingScreen from './screens/LandingScreen.jsx';
 import JoinScreen from './screens/JoinScreen.jsx';
 import LobbyScreen from './screens/LobbyScreen.jsx';
+import GameScreen from './screens/GameScreen.jsx';
 import { wsClient } from './network/WebSocketClient.js';
 import {
   CLIENT_MESSAGES,
@@ -17,6 +18,10 @@ export default function App() {
   const [playerCount, setPlayerCount] = useState(0);
   const [roomState, setRoomState] = useState(null);
   const [error, setError] = useState(null);
+  // Game state
+  const [gameState, setGameState] = useState(null);
+  const [arena, setArena] = useState(null);
+  const [gameEndReason, setGameEndReason] = useState(null);
   const handlersSet = useRef(false);
 
   useEffect(() => {
@@ -45,6 +50,19 @@ export default function App() {
           setPlayerCount(msg.playerCount);
           setRoomState(msg.roomState);
           break;
+        case SERVER_MESSAGES.GAME_STARTED:
+          setPlayerId(msg.yourPlayerId);
+          setArena(msg.arena);
+          setGameState({ players: msg.players, itPlayerId: msg.itPlayerId });
+          setGameEndReason(null);
+          setScreen('game');
+          break;
+        case SERVER_MESSAGES.GAME_STATE:
+          setGameState({ players: msg.players, itPlayerId: msg.itPlayerId });
+          break;
+        case SERVER_MESSAGES.GAME_ENDED:
+          setGameEndReason(msg.reason);
+          break;
         case SERVER_MESSAGES.ERROR:
           setError(msg.message || 'An error occurred');
           break;
@@ -63,6 +81,9 @@ export default function App() {
       setPlayerId(null);
       setPlayerCount(0);
       setRoomState(null);
+      setGameState(null);
+      setArena(null);
+      setGameEndReason(null);
     });
   }, []);
 
@@ -96,6 +117,19 @@ export default function App() {
     setScreen('landing');
   };
 
+  const handleLeaveGame = () => {
+    wsClient.disconnect();
+    setScreen('landing');
+    setRoomCode(null);
+    setPlayerId(null);
+    setPlayerCount(0);
+    setRoomState(null);
+    setGameState(null);
+    setArena(null);
+    setGameEndReason(null);
+    setError(null);
+  };
+
   let statusMessage = 'Connecting...';
   if (roomState === ROOM_STATES.WAITING_FOR_PLAYER) {
     statusMessage = 'Waiting for another player...';
@@ -125,6 +159,17 @@ export default function App() {
           roomCode={roomCode}
           playerCount={playerCount}
           statusMessage={statusMessage}
+        />
+      )}
+
+      {screen === 'game' && (
+        <GameScreen
+          roomCode={roomCode}
+          playerId={playerId}
+          gameState={gameState}
+          arena={arena}
+          onLeave={handleLeaveGame}
+          gameEndReason={gameEndReason}
         />
       )}
 

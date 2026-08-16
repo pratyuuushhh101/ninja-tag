@@ -2,15 +2,17 @@ import { simulatePlayerMovement } from '../../../shared/game/movement.js';
 import { FIXED_DT } from '../../../shared/protocol/constants.js';
 
 /**
- * Client Prediction & Server Reconciliation Engine
+ * Client Prediction & Server Reconciliation Engine (Phase 4.2)
  *
  * Runs local player prediction independently at a fixed 60Hz simulation cadence,
- * stores unacknowledged inputs in a pending history queue, and reconciles
- * local predicted position with authoritative server snapshots.
+ * tracks tick input history timelines, and reconciles local predicted position
+ * with authoritative server snapshots over exact 60Hz tick intervals.
  */
 export class Prediction {
   constructor() {
     this.pendingInputs = [];
+    this.tickHistory = new Map(); // localTick -> inputState { up, down, left, right }
+    this.localTick = 0;
     this.authoritativePosition = null;
     this.predictedPosition = null;
     this.maxPendingInputs = 500; // Defensive safety cap
@@ -19,8 +21,10 @@ export class Prediction {
     this.tickPrediction = this.tickPrediction.bind(this);
   }
 
-  init(initialPosition) {
+  init(initialPosition, startTick = 0) {
     this.pendingInputs = [];
+    this.tickHistory.clear();
+    this.localTick = typeof startTick === 'number' ? startTick : 0;
     this.authoritativePosition = initialPosition ? { ...initialPosition } : { x: 200, y: 300 };
     this.predictedPosition = initialPosition ? { ...initialPosition } : { x: 200, y: 300 };
   }
@@ -47,28 +51,53 @@ export class Prediction {
   reset() {
     this.stop();
     this.pendingInputs = [];
+    this.tickHistory.clear();
+    this.localTick = 0;
     this.authoritativePosition = null;
     this.predictedPosition = null;
   }
 
   /**
    * 60Hz prediction tick callback.
-   * Reads current local input state and advances predicted local position.
+   * Reads current local input state, records tick input timeline, and advances predicted local position.
    */
   tickPrediction() {
     if (!this.predictedPosition) return;
+
+    this.localTick += 1;
 
     const currentInput = this.inputManagerRef
       ? this.inputManagerRef.getInput()
       : { up: false, down: false, left: false, right: false };
 
+    const inputCopy = {
+      up: Boolean(currentInput.up),
+      down: Boolean(currentInput.down),
+      left: Boolean(currentInput.left),
+      right: Boolean(currentInput.right)
+    };
+
+    // Record input state for this 60Hz prediction tick
+    this.tickHistory.set(this.localTick, inputCopy);
+
+    // Defensive prune: keep max 600 ticks (~10 seconds)
+    if (this.tickHistory.size > 600) {
+      const oldestTick = this.localTick - 600;
+      for (const t of this.tickHistory.keys()) {
+        if (t <= oldestTick) {
+          this.tickHistory.delete(t);
+        } else {
+          break;
+        }
+      }
+    }
+
     // Advance predicted position by exactly one FIXED_DT step
-    this.predictedPosition = simulatePlayerMovement(this.predictedPosition, currentInput, FIXED_DT);
+    this.predictedPosition = simulatePlayerMovement(this.predictedPosition, inputCopy, FIXED_DT);
   }
 
   /**
-   * Stores an immutable input command into pending history queue for reconciliation replay.
-   * Does NOT advance simulation directly — simulation runs at 60Hz in tickPrediction.
+   * Stores an immutable input command into pending history queue for sequence tracking.
    *
    * @param {number} sequence - Monotonically increasing sequence number
    * @param {Object} inputState - Input command state { up, down, left, right }
@@ -76,9 +105,9 @@ export class Prediction {
   addInput(sequence, inputState) {
     if (!this.predictedPosition) return;
 
-    // Create immutable snapshot of input command
     const cmd = {
       sequence,
+      tick: this.localTick,
       input: {
         up: Boolean(inputState.up),
         down: Boolean(inputState.down),
@@ -91,40 +120,53 @@ export class Prediction {
 
     // Defensive safety cap to prevent unconstrained array growth
     if (this.pendingInputs.length > this.maxPendingInputs) {
-      console.warn(`[NinjaTag] Pending input queue exceeded ${this.maxPendingInputs}, trimming oldest.`);
       this.pendingInputs.shift();
     }
   }
 
   /**
    * Reconciles local prediction with authoritative server position.
-   * Prunes acknowledged inputs (sequence <= lastProcessedInput), resets
-   * simulation to server (x, y), and replays unacknowledged inputs.
+   * Replays exact 60Hz tick input timeline from server tick S to current localTick C.
    *
    * @param {Object} authoritativePos - Authoritative { x, y } from server snapshot
+   * @param {number} serverTick - Authoritative server tick counter (S)
    * @param {number} lastProcessedInput - Server acknowledged input sequence
    */
-  reconcile(authoritativePos, lastProcessedInput) {
+  reconcile(authoritativePos, serverTick, lastProcessedInput) {
     if (!authoritativePos) return;
 
-    // Update authoritative server position
     this.authoritativePosition = { ...authoritativePos };
 
-    // Prune inputs <= lastProcessedInput ACK
+    // Prune acknowledged input sequence commands <= lastProcessedInput
     if (typeof lastProcessedInput === 'number') {
       this.pendingInputs = this.pendingInputs.filter(cmd => cmd.sequence > lastProcessedInput);
     }
 
-    // Ensure pending commands remain strictly ordered by sequence number
-    this.pendingInputs.sort((a, b) => a.sequence - b.sequence);
+    const S = typeof serverTick === 'number' ? serverTick : this.localTick;
+    const C = this.localTick;
 
-    // Reconstruct predicted position: start at server (x, y) and replay unacked inputs
-    let replayedPos = { ...authoritativePos };
-    for (const cmd of this.pendingInputs) {
-      replayedPos = simulatePlayerMovement(replayedPos, cmd.input, FIXED_DT);
+    if (S < C) {
+      let replayedPos = { ...authoritativePos };
+
+      // Replay exact 60Hz tick timeline for unacknowledged simulation ticks (S + 1 to C)
+      for (let t = S + 1; t <= C; t++) {
+        const inputAtTick = this.tickHistory.get(t) || (this.inputManagerRef ? this.inputManagerRef.getInput() : { up: false, down: false, left: false, right: false });
+        replayedPos = simulatePlayerMovement(replayedPos, inputAtTick, FIXED_DT);
+      }
+
+      this.predictedPosition = replayedPos;
+    } else {
+      this.predictedPosition = { ...authoritativePos };
     }
 
-    this.predictedPosition = replayedPos;
+    // Prune tick history for ticks <= serverTick
+    for (const t of this.tickHistory.keys()) {
+      if (t <= S) {
+        this.tickHistory.delete(t);
+      } else {
+        break;
+      }
+    }
   }
 
   /**

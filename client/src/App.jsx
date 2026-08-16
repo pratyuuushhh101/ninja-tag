@@ -37,8 +37,6 @@ export default function App() {
     handlersSet.current = true;
 
     wsClient.onMessage((msg) => {
-      const currentLocalId = playerIdRef.current;
-
       switch (msg.type) {
         case SERVER_MESSAGES.ROOM_CREATED:
           playerIdRef.current = msg.playerId;
@@ -70,13 +68,16 @@ export default function App() {
           playerIdRef.current = localId;
           networkState.reset();
 
-          // Initialize local player prediction state with initial spawn coordinates
+          // Initialize local player prediction state with initial spawn coordinates and start tick
           const localInitialState = msg.players ? msg.players.find(p => p.id === localId) : null;
-          prediction.init(localInitialState ? { x: localInitialState.x, y: localInitialState.y } : { x: 200, y: 300 });
+          prediction.init(
+            localInitialState ? { x: localInitialState.x, y: localInitialState.y } : { x: 200, y: 300 },
+            msg.tick || 0
+          );
 
           setPlayerId(localId);
           setArena(msg.arena);
-          setGameState(prediction.getRenderState({ tick: 0, players: msg.players, itPlayerId: msg.itPlayerId }, localId));
+          setGameState(prediction.getRenderState({ tick: msg.tick || 0, players: msg.players, itPlayerId: msg.itPlayerId }, localId));
           setGameEndReason(null);
           setScreen('game');
           break;
@@ -91,9 +92,13 @@ export default function App() {
             const snapshot = networkState.getLatestSnapshot();
             const localAuth = snapshot.players.find(p => p.id === activeLocalId);
 
-            // Reconcile local prediction: reset to server (x, y) & replay unacknowledged pending inputs
+            // Reconcile local prediction: reset to server (x, y) at snapshot.tick & replay unacknowledged 60Hz tick timeline
             if (localAuth) {
-              prediction.reconcile({ x: localAuth.x, y: localAuth.y }, networkState.lastAcknowledgedInput);
+              prediction.reconcile(
+                { x: localAuth.x, y: localAuth.y },
+                snapshot.tick,
+                networkState.lastAcknowledgedInput
+              );
             }
 
             // Update state with composed render payload (local = predicted, remote = authoritative)

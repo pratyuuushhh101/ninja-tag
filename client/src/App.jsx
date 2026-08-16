@@ -5,6 +5,7 @@ import LobbyScreen from './screens/LobbyScreen.jsx';
 import GameScreen from './screens/GameScreen.jsx';
 import { wsClient } from './network/WebSocketClient.js';
 import { networkState } from './network/NetworkState.js';
+import { prediction } from './game/Prediction.js';
 import {
   CLIENT_MESSAGES,
   SERVER_MESSAGES,
@@ -19,7 +20,7 @@ export default function App() {
   const [roomState, setRoomState] = useState(null);
   const [error, setError] = useState(null);
 
-  // Game state
+  // Game & Render state
   const [gameState, setGameState] = useState(null);
   const [arena, setArena] = useState(null);
   const [gameEndReason, setGameEndReason] = useState(null);
@@ -54,22 +55,39 @@ export default function App() {
           setRoomState(msg.roomState);
           break;
 
-        case SERVER_MESSAGES.GAME_STARTED:
+        case SERVER_MESSAGES.GAME_STARTED: {
+          const localId = msg.yourPlayerId;
           networkState.reset();
-          setPlayerId(msg.yourPlayerId);
+
+          // Initialize local player prediction state with initial spawn coordinates
+          const localInitialState = msg.players ? msg.players.find(p => p.id === localId) : null;
+          prediction.init(localInitialState ? { x: localInitialState.x, y: localInitialState.y } : { x: 200, y: 300 });
+
+          setPlayerId(localId);
           setArena(msg.arena);
-          setGameState({ players: msg.players, itPlayerId: msg.itPlayerId, tick: 0 });
+          setGameState(prediction.getRenderState({ tick: 0, players: msg.players, itPlayerId: msg.itPlayerId }, localId));
           setGameEndReason(null);
           setScreen('game');
           break;
+        }
 
         case SERVER_MESSAGES.SNAPSHOT:
-        case SERVER_MESSAGES.GAME_STATE:
-          // Feed to NetworkState which validates ticks & input ACKs
+        case SERVER_MESSAGES.GAME_STATE: {
+          // Process authoritative snapshot in NetworkState (validates tick & extracts ACK)
           if (networkState.handleSnapshot(msg, playerId)) {
-            setGameState(networkState.getLatestSnapshot());
+            const snapshot = networkState.getLatestSnapshot();
+            const localAuth = snapshot.players.find(p => p.id === playerId);
+
+            // Reconcile local prediction: reset to server (x, y) & replay unacknowledged pending inputs
+            if (localAuth) {
+              prediction.reconcile({ x: localAuth.x, y: localAuth.y }, networkState.lastAcknowledgedInput);
+            }
+
+            // Update state with composed render payload (local = predicted, remote = authoritative)
+            setGameState(prediction.getRenderState(snapshot, playerId));
           }
           break;
+        }
 
         case SERVER_MESSAGES.GAME_ENDED:
           setGameEndReason(msg.reason);
@@ -90,6 +108,7 @@ export default function App() {
 
     wsClient.onClose(() => {
       networkState.reset();
+      prediction.reset();
       setScreen('landing');
       setRoomCode(null);
       setPlayerId(null);
@@ -134,6 +153,7 @@ export default function App() {
   const handleLeaveGame = () => {
     wsClient.disconnect();
     networkState.reset();
+    prediction.reset();
     setScreen('landing');
     setRoomCode(null);
     setPlayerId(null);

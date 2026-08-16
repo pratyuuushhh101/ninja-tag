@@ -1,5 +1,6 @@
 import { wsClient } from '../network/WebSocketClient.js';
 import { networkState } from '../network/NetworkState.js';
+import { prediction } from './Prediction.js';
 import { CLIENT_MESSAGES, INPUT_INTERVAL_MS } from '../../../shared/protocol/constants.js';
 
 export class InputManager {
@@ -67,10 +68,16 @@ export class InputManager {
     if (!wsClient.isConnected()) return;
 
     const sequence = networkState.getNextInputSequence();
+    const inputCopy = { ...this.input };
+
+    // 1. Predict local movement step immediately & store in pending queue
+    prediction.addInput(sequence, inputCopy);
+
+    // 2. Transmit to server over WebSocket
     wsClient.send({
       type: CLIENT_MESSAGES.INPUT,
       sequence,
-      input: { ...this.input }
+      input: inputCopy
     });
   }
 }

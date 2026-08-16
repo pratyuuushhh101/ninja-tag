@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import GameCanvas from '../components/GameCanvas.jsx';
 import { InputManager } from '../game/InputManager.js';
 import { networkState } from '../network/NetworkState.js';
+import { prediction } from '../game/Prediction.js';
 
 export default function GameScreen({ roomCode, playerId, gameState, arena, onLeave, gameEndReason }) {
   const inputManagerRef = useRef(null);
@@ -29,7 +30,7 @@ export default function GameScreen({ roomCode, playerId, gameState, arena, onLea
           <span>ROOM: <strong>{roomCode}</strong></span>
           <span style={{ marginLeft: '20px' }}>YOU: <strong style={{ color: isIt ? '#ff8800' : '#4488ff' }}>{roleText}</strong></span>
           <span style={{ marginLeft: '20px', fontSize: '12px', color: '#aaa' }}>
-            TICK: {gameState?.tick ?? networkState.latestServerTick} | ACK: {networkState.lastAcknowledgedInput} | SENT SEQ: {networkState.nextInputSequence}
+            TICK: {gameState?.tick ?? networkState.latestServerTick} | ACK: {networkState.lastAcknowledgedInput} | SENT: {networkState.nextInputSequence} | PENDING: {prediction.getPendingCount()}
           </span>
         </div>
         <button onClick={onLeave} style={{ padding: '5px 15px', cursor: 'pointer' }}>Leave Game</button>

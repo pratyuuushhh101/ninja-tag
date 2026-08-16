@@ -1,0 +1,13 @@
+{
+  "name": "ninja-tag-server",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

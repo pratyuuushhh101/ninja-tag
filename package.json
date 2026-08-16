@@ -1,0 +1,15 @@
+{
+  "name": "ninja-tag",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev:server": "node server/src/index.js",
+    "dev:client": "npm run dev --prefix client",
+    "dev": "echo \"Run dev:server and dev:client in separate terminals\"",
+    "test": "node test/acceptance.js"
+  },
+  "devDependencies": {
+    "ws": "^8.16.0"
+  }
+}

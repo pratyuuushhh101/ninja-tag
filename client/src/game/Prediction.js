@@ -4,22 +4,28 @@ import { wsClient } from '../network/WebSocketClient.js';
 import { networkState } from '../network/NetworkState.js';
 
 /**
- * Client Prediction & Server Reconciliation Engine (Phase 4.5)
+ * Client Prediction & Server Reconciliation Engine (Phase 4.6)
  *
  * Runs local player prediction independently at a fixed 60Hz simulation cadence.
  * Transmits input-state version updates over WebSocket at ~30Hz.
- * Maintains an explicit predictionHistory timeline ({ sequence, input, steps }) separate
- * from ACK pending state to preserve local prediction steps executed after an ACK.
+ * Maintains two strictly separated history concepts:
+ * 1. Network Input-State History (pendingInputs: [{ sequence, input }]): REAL network versions
+ * 2. Local Prediction Step History (predictionHistory: [{ predictionId, input, sourceSequence }]): 60Hz simulation steps
+ *
+ * Network sequence numbers represent input-state versions transmitted over WebSockets.
+ * Local prediction steps have internal monotonically increasing predictionId values and nullable sourceSequence.
  */
 export class Prediction {
   constructor() {
     this.pendingInputs = [];
     this.predictionHistory = [];
+    this.nextPredictionId = 0;
+    this.currentNetworkSequence = null;
     this.lastAcknowledgedSequence = 0;
-    this.currentHistoryEntry = null;
     this.authoritativePosition = null;
     this.predictedPosition = null;
-    this.maxPendingInputs = 500; // Defensive safety cap
+    this.maxPendingInputs = 500;
+    this.maxPredictionHistory = 150;
     this.predictionIntervalId = null;
     this.inputManagerRef = null;
     this.tickPrediction = this.tickPrediction.bind(this);
@@ -28,8 +34,9 @@ export class Prediction {
   init(initialPosition) {
     this.pendingInputs = [];
     this.predictionHistory = [];
+    this.nextPredictionId = 0;
+    this.currentNetworkSequence = null;
     this.lastAcknowledgedSequence = 0;
-    this.currentHistoryEntry = null;
     this.authoritativePosition = initialPosition ? { ...initialPosition } : { x: 200, y: 300 };
     this.predictedPosition = initialPosition ? { ...initialPosition } : { x: 200, y: 300 };
   }
@@ -57,19 +64,23 @@ export class Prediction {
     this.stop();
     this.pendingInputs = [];
     this.predictionHistory = [];
+    this.nextPredictionId = 0;
+    this.currentNetworkSequence = null;
     this.lastAcknowledgedSequence = 0;
-    this.currentHistoryEntry = null;
     this.authoritativePosition = null;
     this.predictedPosition = null;
   }
 
   /**
-   * Transmits a new input-state version update over WebSocket (~30Hz or on key change).
+   * Transmits a REAL input-state version update over WebSocket (~30Hz or on key change).
+   * Sequence numbers are generated ONLY in this method.
    */
   sendInputState(inputState) {
     if (!this.predictedPosition) return;
 
+    // Generate REAL network sequence number
     const sequence = networkState.getNextInputSequence();
+    this.currentNetworkSequence = sequence;
 
     const cmd = {
       sequence,
@@ -87,19 +98,6 @@ export class Prediction {
       this.pendingInputs.shift();
     }
 
-    // Create a new entry in predictionHistory for this sequence version
-    this.currentHistoryEntry = {
-      sequence,
-      input: { ...cmd.input },
-      steps: 0
-    };
-    this.predictionHistory.push(this.currentHistoryEntry);
-
-    // Prune old history entries (keep max 100 entries)
-    if (this.predictionHistory.length > 100) {
-      this.predictionHistory.shift();
-    }
-
     // Transmit over WebSocket
     if (wsClient.isConnected()) {
       wsClient.send({
@@ -112,7 +110,8 @@ export class Prediction {
 
   /**
    * 60Hz local prediction simulation tick.
-   * Advances local predicted position and records step into predictionHistory.
+   * Advances local predicted position and records a single prediction step into predictionHistory.
+   * DOES NOT generate or increment network sequence numbers.
    */
   tickPrediction() {
     if (!this.predictedPosition) return;
@@ -124,22 +123,24 @@ export class Prediction {
     // Advance local prediction by 1 FIXED_DT step
     this.predictedPosition = simulatePlayerMovement(this.predictedPosition, currentInput, FIXED_DT);
 
-    // Ensure we have an active unacknowledged predictionHistory entry
-    if (!this.currentHistoryEntry || this.currentHistoryEntry.sequence <= this.lastAcknowledgedSequence) {
-      const activeSequence = Math.max(networkState.nextInputSequence, this.lastAcknowledgedSequence + 1);
-      this.currentHistoryEntry = {
-        sequence: activeSequence,
-        input: {
-          up: Boolean(currentInput.up),
-          down: Boolean(currentInput.down),
-          left: Boolean(currentInput.left),
-          right: Boolean(currentInput.right)
-        },
-        steps: 1
-      };
-      this.predictionHistory.push(this.currentHistoryEntry);
-    } else {
-      this.currentHistoryEntry.steps += 1;
+    // Record local prediction step with unique client-internal predictionId
+    this.nextPredictionId += 1;
+    const step = {
+      predictionId: this.nextPredictionId,
+      input: {
+        up: Boolean(currentInput.up),
+        down: Boolean(currentInput.down),
+        left: Boolean(currentInput.left),
+        right: Boolean(currentInput.right)
+      },
+      sourceSequence: this.currentNetworkSequence
+    };
+
+    this.predictionHistory.push(step);
+
+    // Safe defensive pruning of old history (keep max 150 steps)
+    if (this.predictionHistory.length > this.maxPredictionHistory) {
+      this.predictionHistory.shift();
     }
   }
 
@@ -162,23 +163,24 @@ export class Prediction {
       // Prune pending network messages <= ACK
       this.pendingInputs = this.pendingInputs.filter(cmd => cmd.sequence > lastProcessedInput);
 
-      // Prune prediction history entries <= ACK
-      this.predictionHistory = this.predictionHistory.filter(entry => entry.sequence > lastProcessedInput);
-
-      if (this.currentHistoryEntry && this.currentHistoryEntry.sequence <= lastProcessedInput) {
-        this.currentHistoryEntry = null;
+      // If current active network sequence has been acknowledged, reset currentNetworkSequence to null
+      if (this.currentNetworkSequence !== null && this.currentNetworkSequence <= lastProcessedInput) {
+        this.currentNetworkSequence = null;
       }
+
+      // Prune prediction history steps <= ACK (keep steps with sourceSequence === null OR sourceSequence > ACK)
+      this.predictionHistory = this.predictionHistory.filter(
+        step => step.sourceSequence === null || step.sourceSequence > lastProcessedInput
+      );
     }
 
-    // Sort remaining history strictly by sequence ascending
-    this.predictionHistory.sort((a, b) => a.sequence - b.sequence);
+    // Sort remaining prediction steps strictly by predictionId ascending
+    this.predictionHistory.sort((a, b) => a.predictionId - b.predictionId);
 
     // Reconstruct predicted position starting from server position
     let replayedPos = { ...authoritativePos };
-    for (const entry of this.predictionHistory) {
-      for (let i = 0; i < entry.steps; i++) {
-        replayedPos = simulatePlayerMovement(replayedPos, entry.input, FIXED_DT);
-      }
+    for (const step of this.predictionHistory) {
+      replayedPos = simulatePlayerMovement(replayedPos, step.input, FIXED_DT);
     }
 
     this.predictedPosition = replayedPos;

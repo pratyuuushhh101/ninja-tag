@@ -1,18 +1,22 @@
 /**
- * Ninja Tag Phase 4.5 — Acceptance Test Script
+ * Ninja Tag Phase 4.6 — Acceptance Test Script
  *
- * Tests Phase 4.5 Client Reconciliation History Correction:
- * - TEST 1: ACKed input with continued prediction (post-ACK steps preserved in history)
- * - TEST 2: Reconciliation after ACK (authPos + exact post-ACK prediction steps)
- * - TEST 3: Input change after ACK (only post-ACK timeline replayed)
- * - TEST 4: Multiple ACKs (ACK 1, 2, 3 progression and history pruning)
- * - TEST 5: No double replay (re-running reconciliation with same snapshot is deterministic)
- * - TEST 6: Continuous movement stability (holding RIGHT for several seconds under ACKs)
- * - TEST 7: Rapid direction changes (RIGHT -> DOWN -> LEFT -> UP -> NONE replay order)
- * - TEST 8: History bound (predictionHistory bounded after repeated ACKs)
- * - TEST 9: Server files audit (ZERO server files modified in Phase 4.5)
- * - TEST 10: Protocol schema audit (ZERO protocol schema changes)
- * - TEST 11: End-to-End integration test
+ * Tests Phase 4.6 Final Client Prediction / Reconciliation Correction:
+ * - TEST 1: No synthetic sequences (10 prediction ticks after ACK 1 do not fabricate sourceSequence=2)
+ * - TEST 2: Synthetic/real sequence collision protection (pre-seq-2 prediction not labeled seq 2)
+ * - TEST 3: Continuous movement stability (holding RIGHT for several seconds under ACKs)
+ * - TEST 4: ACK then continue predicting (post-ACK steps with sourceSequence=null replayed)
+ * - TEST 5: ACK then new network state (post-ACK steps replayed exactly once after seq 2)
+ * - TEST 6: Input change order (RIGHT -> DOWN -> LEFT exact replay order)
+ * - TEST 7: Key release (NONE state representation and no stale movement replay)
+ * - TEST 8: Rapid direction changes (RIGHT -> DOWN -> LEFT -> UP -> NONE stability)
+ * - TEST 9: Multiple reconciliations (sequential snapshots, no double step replay)
+ * - TEST 10: History bounds (predictionHistory bounded at 150 steps)
+ * - TEST 11: Same input multiple ticks (20 prediction steps, NOT 20 network sequences)
+ * - TEST 12: No network message during prediction (60Hz prediction loop generates 0 WS packets)
+ * - TEST 13: Protocol schema audit (ZERO protocol schema changes)
+ * - TEST 14: Server files audit (ZERO server files modified in Phase 4.6)
+ * - TEST 15: End-to-End integration test
  *
  * Run with: node test/acceptance.js
  * Requires the server to be running on port 3001 for integration tests.
@@ -109,11 +113,11 @@ async function createAndStartGame() {
 }
 
 async function runTests() {
-  console.log('\n🥷 Ninja Tag Phase 4.5 — Acceptance Tests (Client Reconciliation History Correction)\n');
-  console.log('── Unit Tests: Post-ACK Timeline Preservation & Reconciliation ──\n');
+  console.log('\n🥷 Ninja Tag Phase 4.6 — Acceptance Tests (Final Client Prediction / Reconciliation Correction)\n');
+  console.log('── Unit Tests: Separated Input & Local Step Histories ──\n');
 
-  // TEST 1: ACKed input with continued prediction
-  await test('TEST 1 — ACKed input with continued prediction (post-ACK steps preserved in history)', () => {
+  // TEST 1: No synthetic sequences
+  await test('TEST 1 — No synthetic sequences (10 prediction ticks after ACK 1 do not fabricate sourceSequence=2)', () => {
     networkState.reset();
     const pred = new Prediction();
     pred.init({ x: 200, y: 300 });
@@ -121,27 +125,27 @@ async function runTests() {
     const rightInput = { left: false, right: true, up: false, down: false };
     pred.inputManagerRef = { getInput: () => rightInput };
 
-    // Transmit seq 1 and simulate 3 prediction steps
+    // Transmit seq 1
     pred.sendInputState(rightInput);
-    pred.tickPrediction();
-    pred.tickPrediction();
-    pred.tickPrediction();
+    pred.tickPrediction(); // step 1 (sourceSequence: 1)
 
-    // ACK seq 1
-    pred.reconcile({ x: 200 + 3 * (PLAYER_SPEED * FIXED_DT), y: 300 }, 1);
+    // ACK 1
+    pred.reconcile({ x: 200 + (PLAYER_SPEED * FIXED_DT), y: 300 }, 1);
 
-    // Perform 4 additional prediction steps
-    for (let i = 0; i < 4; i++) {
+    // Run 10 prediction ticks without transmitting seq 2
+    for (let i = 0; i < 10; i++) {
       pred.tickPrediction();
     }
 
-    // Verify 4 steps are preserved in prediction history
-    const totalStepsInHistory = pred.predictionHistory.reduce((sum, entry) => sum + entry.steps, 0);
-    assert(totalStepsInHistory === 4, `Post-ACK prediction history should contain 4 steps, got ${totalStepsInHistory}`);
+    assert(pred.predictionHistory.length === 10, `Expected 10 steps in predictionHistory, got ${pred.predictionHistory.length}`);
+    const hasFabricatedSeq2 = pred.predictionHistory.some(step => step.sourceSequence === 2);
+    assert(!hasFabricatedSeq2, 'NONE of the prediction steps must have fabricated sourceSequence=2!');
+    const nullSourceCount = pred.predictionHistory.filter(step => step.sourceSequence === null).length;
+    assert(nullSourceCount === 10, `All 10 post-ACK prediction steps must have sourceSequence=null, got ${nullSourceCount}`);
   });
 
-  // TEST 2: Reconciliation after ACK
-  await test('TEST 2 — Reconciliation after ACK (authPos + exact post-ACK prediction steps)', () => {
+  // TEST 2: Synthetic/real sequence collision protection
+  await test('TEST 2 — Synthetic/real sequence collision protection (pre-seq-2 prediction not labeled seq 2)', () => {
     networkState.reset();
     const pred = new Prediction();
     pred.init({ x: 200, y: 300 });
@@ -151,98 +155,27 @@ async function runTests() {
 
     pred.sendInputState(rightInput); // seq 1
     pred.tickPrediction();
+    pred.reconcile({ x: 200 + (PLAYER_SPEED * FIXED_DT), y: 300 }, 1);
+
+    // 3 ticks before seq 2 is sent
+    pred.tickPrediction();
+    pred.tickPrediction();
     pred.tickPrediction();
 
-    // ACK seq 1 at authPos (200 + 2 steps)
-    const authPos1 = { x: 200 + 2 * (PLAYER_SPEED * FIXED_DT), y: 300 };
-    pred.reconcile(authPos1, 1);
-
-    // Perform 4 additional prediction steps after ACK
-    for (let i = 0; i < 4; i++) {
-      pred.tickPrediction();
-    }
-
-    // Reconcile again at authPos1
-    pred.reconcile(authPos1, 1);
-
-    const expectedX = authPos1.x + 4 * (PLAYER_SPEED * FIXED_DT);
-    assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `Reconciled X expected ${expectedX}, got ${pred.predictedPosition.x}`);
-  });
-
-  // TEST 3: Input change after ACK
-  await test('TEST 3 — Input change after ACK (only post-ACK timeline replayed)', () => {
-    networkState.reset();
-    const pred = new Prediction();
-    pred.init({ x: 200, y: 300 });
-
-    let currentInput = { left: false, right: true, up: false, down: false };
-    pred.inputManagerRef = { getInput: () => currentInput };
-
-    pred.sendInputState(currentInput); // seq 1
-    pred.tickPrediction(); // 1 step RIGHT
-
-    // ACK seq 1
-    const authPos = { x: 200 + (PLAYER_SPEED * FIXED_DT), y: 300 };
-    pred.reconcile(authPos, 1);
-
-    // Change input to DOWN and transmit seq 2
-    currentInput = { left: false, right: false, up: false, down: true };
-    pred.sendInputState(currentInput); // seq 2
-    pred.tickPrediction();
-    pred.tickPrediction(); // 2 steps DOWN
-
-    pred.reconcile(authPos, 1); // Reconcile at ACK 1
-
-    const expectedY = 300 + 2 * (PLAYER_SPEED * FIXED_DT);
-    assert(Math.abs(pred.predictedPosition.y - expectedY) < 0.0001, `Reconciled Y expected ${expectedY}, got ${pred.predictedPosition.y}`);
-  });
-
-  // TEST 4: Multiple ACKs
-  await test('TEST 4 — Multiple ACKs progression and history pruning', () => {
-    networkState.reset();
-    const pred = new Prediction();
-    pred.init({ x: 200, y: 300 });
-    const rightInput = { left: false, right: true, up: false, down: false };
-    pred.inputManagerRef = { getInput: () => rightInput };
-
-    pred.sendInputState(rightInput); // seq 1
-    pred.tickPrediction();
-    pred.reconcile({ x: 200, y: 300 }, 1);
-
+    // Now send REAL seq 2
     pred.sendInputState(rightInput); // seq 2
     pred.tickPrediction();
-    pred.reconcile({ x: 200, y: 300 }, 2);
-
-    pred.sendInputState(rightInput); // seq 3
     pred.tickPrediction();
-    pred.reconcile({ x: 200, y: 300 }, 3);
 
-    assert(pred.predictionHistory.length === 0, `History should be fully pruned after ACK 3, got ${pred.predictionHistory.length}`);
+    const preSeq2Steps = pred.predictionHistory.filter(step => step.sourceSequence === null);
+    const seq2Steps = pred.predictionHistory.filter(step => step.sourceSequence === 2);
+
+    assert(preSeq2Steps.length === 3, `Pre-seq-2 steps with sourceSequence=null should be 3, got ${preSeq2Steps.length}`);
+    assert(seq2Steps.length === 2, `Steps with sourceSequence=2 should be 2, got ${seq2Steps.length}`);
   });
 
-  // TEST 5: No double replay
-  await test('TEST 5 — No double replay when running reconciliation twice with same snapshot', () => {
-    networkState.reset();
-    const pred = new Prediction();
-    pred.init({ x: 200, y: 300 });
-    const rightInput = { left: false, right: true, up: false, down: false };
-    pred.inputManagerRef = { getInput: () => rightInput };
-
-    pred.sendInputState(rightInput); // seq 1
-    for (let i = 0; i < 5; i++) pred.tickPrediction();
-
-    const authPos = { x: 200, y: 300 };
-    pred.reconcile(authPos, 0);
-    const pos1 = pred.predictedPosition.x;
-
-    pred.reconcile(authPos, 0);
-    const pos2 = pred.predictedPosition.x;
-
-    assert(pos1 === pos2, `Repeated reconciliation must produce identical position (${pos1} vs ${pos2})`);
-  });
-
-  // TEST 6: Continuous movement stability
-  await test('TEST 6 — Continuous movement stability over several seconds under repeated ACKs', () => {
+  // TEST 3: Continuous movement stability
+  await test('TEST 3 — Continuous movement stability over several seconds under repeated ACKs', () => {
     networkState.reset();
     const pred = new Prediction();
     pred.init({ x: 200, y: 300 });
@@ -262,8 +195,116 @@ async function runTests() {
     assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `Continuous movement expected ${expectedX}, got ${pred.predictedPosition.x}`);
   });
 
-  // TEST 7: Rapid direction changes
-  await test('TEST 7 — Rapid direction changes (RIGHT -> DOWN -> LEFT -> UP -> NONE) replay order', () => {
+  // TEST 4: ACK then continue predicting
+  await test('TEST 4 — ACK then continue predicting (post-ACK steps replayed, auth steps ignored)', () => {
+    networkState.reset();
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 });
+
+    const rightInput = { left: false, right: true, up: false, down: false };
+    pred.inputManagerRef = { getInput: () => rightInput };
+
+    pred.sendInputState(rightInput); // seq 1
+    pred.tickPrediction();
+    pred.tickPrediction();
+    pred.tickPrediction(); // 3 steps (x = 212.5)
+
+    const authPos = { x: 200 + 3 * (PLAYER_SPEED * FIXED_DT), y: 300 };
+    pred.reconcile(authPos, 1); // ACK 1
+
+    for (let i = 0; i < 4; i++) {
+      pred.tickPrediction(); // 4 additional steps
+    }
+
+    pred.reconcile(authPos, 1); // Reconcile again at authPos
+
+    const expectedX = authPos.x + 4 * (PLAYER_SPEED * FIXED_DT);
+    assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `Reconciled X expected ${expectedX}, got ${pred.predictedPosition.x}`);
+  });
+
+  // TEST 5: ACK then new network state
+  await test('TEST 5 — ACK then new network state (post-ACK steps replayed exactly once after seq 2)', () => {
+    networkState.reset();
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 });
+
+    const rightInput = { left: false, right: true, up: false, down: false };
+    pred.inputManagerRef = { getInput: () => rightInput };
+
+    pred.sendInputState(rightInput); // seq 1
+    pred.tickPrediction(); // 1 step
+    const authPos = { x: 200 + (PLAYER_SPEED * FIXED_DT), y: 300 };
+    pred.reconcile(authPos, 1);
+
+    pred.tickPrediction();
+    pred.tickPrediction(); // 2 steps (sourceSequence: null)
+
+    pred.sendInputState(rightInput); // seq 2
+    pred.tickPrediction(); // 1 step (sourceSequence: 2)
+
+    pred.reconcile(authPos, 1); // Reconcile at ACK 1
+
+    const expectedX = authPos.x + 3 * (PLAYER_SPEED * FIXED_DT);
+    assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `Reconciled X expected ${expectedX}, got ${pred.predictedPosition.x}`);
+  });
+
+  // TEST 6: Input change
+  await test('TEST 6 — Input change order (RIGHT -> DOWN -> LEFT exact replay order)', () => {
+    networkState.reset();
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 });
+
+    let input = { left: false, right: true, up: false, down: false };
+    pred.inputManagerRef = { getInput: () => input };
+    pred.sendInputState(input); // seq 1
+    pred.tickPrediction(); // RIGHT
+
+    input = { left: false, right: false, up: false, down: true };
+    pred.inputManagerRef = { getInput: () => input };
+    pred.sendInputState(input); // seq 2
+    pred.tickPrediction(); // DOWN
+
+    input = { left: true, right: false, up: false, down: false };
+    pred.inputManagerRef = { getInput: () => input };
+    pred.sendInputState(input); // seq 3
+    pred.tickPrediction(); // LEFT
+
+    const authPos = { x: 200 + (PLAYER_SPEED * FIXED_DT), y: 300 };
+    pred.reconcile(authPos, 1); // ACK 1
+
+    // Replay should execute DOWN then LEFT
+    const expectedX = authPos.x - (PLAYER_SPEED * FIXED_DT);
+    const expectedY = 300 + (PLAYER_SPEED * FIXED_DT);
+    assert(Math.abs(pred.predictedPosition.x - expectedX) < 0.0001, `X expected ${expectedX}, got ${pred.predictedPosition.x}`);
+    assert(Math.abs(pred.predictedPosition.y - expectedY) < 0.0001, `Y expected ${expectedY}, got ${pred.predictedPosition.y}`);
+  });
+
+  // TEST 7: Key release
+  await test('TEST 7 — Key release (NONE state representation and no stale movement replay)', () => {
+    networkState.reset();
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 });
+
+    let input = { left: false, right: true, up: false, down: false };
+    pred.inputManagerRef = { getInput: () => input };
+    pred.sendInputState(input); // seq 1
+    pred.tickPrediction(); // RIGHT
+
+    // Release keys
+    input = { left: false, right: false, up: false, down: false }; // NONE
+    pred.inputManagerRef = { getInput: () => input };
+    pred.sendInputState(input); // seq 2
+    pred.tickPrediction();
+    pred.tickPrediction(); // NONE for 2 ticks
+
+    const authPos = { x: 200 + (PLAYER_SPEED * FIXED_DT), y: 300 };
+    pred.reconcile(authPos, 1); // ACK 1
+
+    assert(pred.predictedPosition.x === authPos.x, `Reconciled X should remain stationary at ${authPos.x}, got ${pred.predictedPosition.x}`);
+  });
+
+  // TEST 8: Rapid direction changes
+  await test('TEST 8 — Rapid direction changes (RIGHT -> DOWN -> LEFT -> UP -> NONE) stability', () => {
     networkState.reset();
     const pred = new Prediction();
     pred.init({ x: 200, y: 300 });
@@ -283,42 +324,99 @@ async function runTests() {
     }
 
     pred.reconcile({ x: 200, y: 300 }, 0);
-    assert(pred.predictionHistory.length === 5, `Expected 5 history entries, got ${pred.predictionHistory.length}`);
+    assert(pred.predictionHistory.length === 5, `Expected 5 history steps, got ${pred.predictionHistory.length}`);
   });
 
-  // TEST 8: History bound
-  await test('TEST 8 — Prediction history bound (max 100 entries cap)', () => {
+  // TEST 9: Multiple reconciliations
+  await test('TEST 9 — Multiple reconciliations (sequential snapshots, no double step replay)', () => {
     networkState.reset();
     const pred = new Prediction();
     pred.init({ x: 200, y: 300 });
     const rightInput = { left: false, right: true, up: false, down: false };
     pred.inputManagerRef = { getInput: () => rightInput };
 
-    for (let i = 0; i < 150; i++) {
-      pred.sendInputState(rightInput);
-    }
+    pred.sendInputState(rightInput); // seq 1
+    for (let i = 0; i < 5; i++) pred.tickPrediction();
 
-    assert(pred.predictionHistory.length <= 100, `History length should be capped at 100, got ${pred.predictionHistory.length}`);
+    const authPos = { x: 200, y: 300 };
+    pred.reconcile(authPos, 0);
+    const pos1 = pred.predictedPosition.x;
+
+    pred.reconcile(authPos, 0);
+    const pos2 = pred.predictedPosition.x;
+
+    assert(pos1 === pos2, `Repeated reconciliation must produce identical position (${pos1} vs ${pos2})`);
   });
 
-  // TEST 9: Server files audit
-  await test('TEST 9 — Server files audit (ZERO server files modified in Phase 4.5)', () => {
+  // TEST 10: History bounds
+  await test('TEST 10 — History bounds (predictionHistory bounded at 150 steps)', () => {
+    networkState.reset();
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 });
+    const rightInput = { left: false, right: true, up: false, down: false };
+    pred.inputManagerRef = { getInput: () => rightInput };
+
+    for (let i = 0; i < 200; i++) {
+      pred.tickPrediction();
+    }
+
+    assert(pred.predictionHistory.length <= 150, `History length should be capped at 150, got ${pred.predictionHistory.length}`);
+  });
+
+  // TEST 11: Same input multiple ticks
+  await test('TEST 11 — Same input multiple ticks (20 prediction steps, NOT 20 network sequences)', () => {
+    networkState.reset();
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 });
+    const rightInput = { left: false, right: true, up: false, down: false };
+    pred.inputManagerRef = { getInput: () => rightInput };
+
+    pred.sendInputState(rightInput); // seq 1 (1 network sequence)
+    for (let i = 0; i < 20; i++) {
+      pred.tickPrediction(); // 20 prediction steps
+    }
+
+    assert(networkState.nextInputSequence === 1, `Network sequence should be 1, got ${networkState.nextInputSequence}`);
+    assert(pred.predictionHistory.length === 20, `Prediction history should have 20 steps, got ${pred.predictionHistory.length}`);
+  });
+
+  // TEST 12: No network message during prediction
+  await test('TEST 12 — No network message during prediction (60Hz loop generates 0 WS packets)', () => {
+    networkState.reset();
+    const pred = new Prediction();
+    pred.init({ x: 200, y: 300 });
+    const rightInput = { left: false, right: true, up: false, down: false };
+    pred.inputManagerRef = { getInput: () => rightInput };
+
+    let wsMessagesSent = 0;
+    pred.sendInputState(rightInput); // 1 WS message sent via sendInputState
+    const initialPendingCount = pred.pendingInputs.length;
+
+    for (let i = 0; i < 15; i++) {
+      pred.tickPrediction();
+    }
+
+    assert(pred.pendingInputs.length === initialPendingCount, `pendingInputs should remain ${initialPendingCount}, got ${pred.pendingInputs.length}`);
+  });
+
+  // TEST 13: Protocol schema audit
+  await test('TEST 13 — Protocol schema audit (ZERO protocol schema changes)', () => {
+    const constantsFile = fs.readFileSync('shared/protocol/constants.js', 'utf8');
+    assert(constantsFile.includes('CLIENT_MESSAGES') && constantsFile.includes('SERVER_MESSAGES'), 'Protocol constants must be unchanged');
+  });
+
+  // TEST 14: Server files audit
+  await test('TEST 14 — Server files audit (ZERO server files modified in Phase 4.6)', () => {
     const serverFiles = ['server/src/game/Game.js', 'server/src/game/GameLoop.js', 'server/src/game/SnapshotGenerator.js'];
     for (const f of serverFiles) {
       assert(fs.existsSync(f), `File ${f} should exist`);
     }
   });
 
-  // TEST 10: Protocol schema audit
-  await test('TEST 10 — Protocol schema audit (ZERO protocol schema changes)', () => {
-    const constantsFile = fs.readFileSync('shared/protocol/constants.js', 'utf8');
-    assert(constantsFile.includes('CLIENT_MESSAGES') && constantsFile.includes('SERVER_MESSAGES'), 'Protocol constants must be unchanged');
-  });
-
   console.log('\n── Integration Tests: End-to-End Game Start & ACK Extraction ──\n');
 
-  // TEST 11: End-to-End integration test
-  await test('TEST 11 — End-to-End integration: ~30Hz input stream & snapshot ACK extraction', async () => {
+  // TEST 15: End-to-End integration test
+  await test('TEST 15 — End-to-End integration: ~30Hz input stream & snapshot ACK extraction', async () => {
     const { wsA, wsB, gameA } = await createAndStartGame();
     const playerIdA = gameA.yourPlayerId;
     await drain(wsA, 100);

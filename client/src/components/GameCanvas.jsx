@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect } from 'react';
 import { PLAYER_RADIUS } from '../../../shared/protocol/constants.js';
 import { prediction } from '../game/Prediction.js';
 
@@ -373,111 +373,190 @@ function drawHUD(ctx, isIt, roomCode) {
   }
 }
 
+// ── Snapshot buffer for remote player interpolation ──
+const RENDER_DELAY_MS = 100; // Interpolation delay for remote players
+const MAX_BUFFER_SIZE = 5;   // Keep only the latest N snapshots
+
 // ── Main component ──
 
 export default function GameCanvas({ gameState, arena, playerId, roomCode }) {
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
 
-  const render = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !arena) {
-      // Reschedule to keep RAF loop alive
-      animFrameRef.current = requestAnimationFrame(render);
-      return;
-    }
+  // Refs for latest state — RAF loop reads these without closure dependency
+  const gameStateRef = useRef(null);
+  const arenaRef = useRef(null);
+  const playerIdRef = useRef(null);
+  const roomCodeRef = useRef(null);
 
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
+  // Snapshot buffer for remote player interpolation (visual only)
+  const snapshotBufferRef = useRef([]);
 
-    // Scale canvas to fill its container while preserving 1000:600 aspect ratio
-    const container = canvas.parentElement;
-    const containerW = container ? container.clientWidth : WORLD_W;
-    const containerH = container ? container.clientHeight : WORLD_H;
-    const scaleX = containerW / WORLD_W;
-    const scaleY = containerH / WORLD_H;
-    const scale = Math.min(scaleX, scaleY);
+  // Keep refs in sync with props
+  useEffect(() => { arenaRef.current = arena; }, [arena]);
+  useEffect(() => { playerIdRef.current = playerId; }, [playerId]);
+  useEffect(() => { roomCodeRef.current = roomCode; }, [roomCode]);
 
-    const cssW = WORLD_W * scale;
-    const cssH = WORLD_H * scale;
+  // When gameState changes, update ref AND append to snapshot buffer
+  useEffect(() => {
+    gameStateRef.current = gameState;
 
-    // Update canvas backing store only when size actually changes
-    const targetW = Math.floor(cssW * dpr);
-    const targetH = Math.floor(cssH * dpr);
-    if (canvas.width !== targetW || canvas.height !== targetH) {
-      canvas.width = targetW;
-      canvas.height = targetH;
-    }
-    canvas.style.width = `${cssW}px`;
-    canvas.style.height = `${cssH}px`;
-
-    ctx.save();
-    ctx.scale(scale * dpr, scale * dpr);
-
-    // ── Layer 1: Sky ──
-    drawSky(ctx);
-
-    // ── Layer 2: Clouds ──
-    drawClouds(ctx);
-
-    // ── Layer 3: Distant hills ──
-    drawHills(ctx);
-
-    // ── Layer 4: Ground ──
-    drawGround(ctx);
-
-    // ── Layer 5: Trees ──
-    drawTrees(ctx);
-
-    // ── Layer 6: Decorative elements ──
-    drawBushes(ctx);
-    drawRocks(ctx);
-    drawFlowers(ctx);
-
-    // ── Layer 7: Arena boundary (subtle) ──
-    drawArenaBorder(ctx);
-
-    // ── Layer 8: Players ──
     if (gameState && gameState.players) {
-      const tick = gameState.tick || 0;
-
-      for (const player of gameState.players) {
-        const isIt = player.id === gameState.itPlayerId;
-        const isLocal = player.id === playerId;
-
-        // Local player: use 60Hz predicted position from Prediction singleton
-        // Remote player: latest authoritative snapshot position
-        let posX = player.x;
-        let posY = player.y;
-        if (isLocal && prediction.predictedPosition) {
-          posX = prediction.predictedPosition.x;
-          posY = prediction.predictedPosition.y;
-        }
-
-        const bodyColor = isLocal ? '#2979FF' : '#E53935';
-        const headbandColor = isLocal ? '#1565C0' : '#B71C1C';
-
-        drawNinja(ctx, posX, posY, bodyColor, headbandColor, isIt, isLocal, tick);
+      const buffer = snapshotBufferRef.current;
+      buffer.push({
+        state: gameState,
+        receivedAt: performance.now()
+      });
+      // Keep buffer bounded
+      while (buffer.length > MAX_BUFFER_SIZE) {
+        buffer.shift();
       }
     }
+  }, [gameState]);
 
-    // ── Layer 9: HUD ──
-    const isIt = gameState && gameState.itPlayerId === playerId;
-    drawHUD(ctx, isIt, roomCode);
-
-    ctx.restore();
-
-    animFrameRef.current = requestAnimationFrame(render);
-  }, [gameState, arena, playerId, roomCode]);
-
+  // Stable render function — created once, reads from refs
   useEffect(() => {
+    function render() {
+      const canvas = canvasRef.current;
+      const currentArena = arenaRef.current;
+
+      if (!canvas || !currentArena) {
+        animFrameRef.current = requestAnimationFrame(render);
+        return;
+      }
+
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+
+      // Scale canvas to fill its container while preserving 1000:600 aspect ratio
+      const container = canvas.parentElement;
+      const containerW = container ? container.clientWidth : WORLD_W;
+      const containerH = container ? container.clientHeight : WORLD_H;
+      const scaleX = containerW / WORLD_W;
+      const scaleY = containerH / WORLD_H;
+      const scale = Math.min(scaleX, scaleY);
+
+      const cssW = WORLD_W * scale;
+      const cssH = WORLD_H * scale;
+
+      // Update canvas backing store only when size actually changes
+      const targetW = Math.floor(cssW * dpr);
+      const targetH = Math.floor(cssH * dpr);
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+      }
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
+
+      ctx.save();
+      ctx.scale(scale * dpr, scale * dpr);
+
+      // ── Layer 1: Sky ──
+      drawSky(ctx);
+
+      // ── Layer 2: Clouds ──
+      drawClouds(ctx);
+
+      // ── Layer 3: Distant hills ──
+      drawHills(ctx);
+
+      // ── Layer 4: Ground ──
+      drawGround(ctx);
+
+      // ── Layer 5: Trees ──
+      drawTrees(ctx);
+
+      // ── Layer 6: Decorative elements ──
+      drawBushes(ctx);
+      drawRocks(ctx);
+      drawFlowers(ctx);
+
+      // ── Layer 7: Arena boundary (subtle) ──
+      drawArenaBorder(ctx);
+
+      // ── Layer 8: Players ──
+      const currentGameState = gameStateRef.current;
+      const currentPlayerId = playerIdRef.current;
+
+      if (currentGameState && currentGameState.players) {
+        const tick = currentGameState.tick || 0;
+        const buffer = snapshotBufferRef.current;
+        const now = performance.now();
+        const targetTime = now - RENDER_DELAY_MS;
+
+        for (const player of currentGameState.players) {
+          const isIt = player.id === currentGameState.itPlayerId;
+          const isLocal = player.id === currentPlayerId;
+
+          let posX = player.x;
+          let posY = player.y;
+
+          if (isLocal && prediction.predictedPosition) {
+            // LOCAL PLAYER: 60Hz predicted position from Prediction singleton
+            posX = prediction.predictedPosition.x;
+            posY = prediction.predictedPosition.y;
+          } else if (!isLocal && buffer.length >= 2) {
+            // REMOTE PLAYER: interpolate between buffered snapshots
+            // Find snapshots A and B such that A.receivedAt <= targetTime <= B.receivedAt
+            let snapA = null;
+            let snapB = null;
+
+            for (let i = buffer.length - 1; i >= 1; i--) {
+              if (buffer[i - 1].receivedAt <= targetTime && buffer[i].receivedAt >= targetTime) {
+                snapA = buffer[i - 1];
+                snapB = buffer[i];
+                break;
+              }
+            }
+
+            if (snapA && snapB) {
+              // Find this player in both snapshots
+              const playerA = snapA.state.players.find(p => p.id === player.id);
+              const playerB = snapB.state.players.find(p => p.id === player.id);
+
+              if (playerA && playerB) {
+                const span = snapB.receivedAt - snapA.receivedAt;
+                const alpha = span > 0 ? Math.min(1, Math.max(0, (targetTime - snapA.receivedAt) / span)) : 1;
+                posX = playerA.x + (playerB.x - playerA.x) * alpha;
+                posY = playerA.y + (playerB.y - playerA.y) * alpha;
+              }
+            } else if (buffer.length >= 1) {
+              // targetTime is beyond newest snapshot — render newest position directly (no extrapolation)
+              const newest = buffer[buffer.length - 1];
+              const newestPlayer = newest.state.players.find(p => p.id === player.id);
+              if (newestPlayer) {
+                posX = newestPlayer.x;
+                posY = newestPlayer.y;
+              }
+            }
+          }
+
+          const bodyColor = isLocal ? '#2979FF' : '#E53935';
+          const headbandColor = isLocal ? '#1565C0' : '#B71C1C';
+
+          drawNinja(ctx, posX, posY, bodyColor, headbandColor, isIt, isLocal, tick);
+        }
+      }
+
+      // ── Layer 9: HUD ──
+      const isIt = currentGameState && currentGameState.itPlayerId === currentPlayerId;
+      drawHUD(ctx, isIt, roomCodeRef.current);
+
+      ctx.restore();
+
+      animFrameRef.current = requestAnimationFrame(render);
+    }
+
+    // Start the RAF loop once on mount
     animFrameRef.current = requestAnimationFrame(render);
+
     return () => {
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
       }
     };
-  }, [render]);
+  }, []); // Empty deps — RAF created once, never recreated
 
   return (
     <canvas
@@ -492,3 +571,4 @@ export default function GameCanvas({ gameState, arena, playerId, roomCode }) {
     />
   );
 }
+

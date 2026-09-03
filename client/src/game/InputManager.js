@@ -1,38 +1,25 @@
-import { prediction } from './Prediction.js';
-import { INPUT_INTERVAL_MS } from '../../../shared/protocol/constants.js';
-
 /**
- * InputManager — Captures keyboard events and transmits input-state updates at ~30Hz.
+ * InputManager — Captures keyboard events and exposes current input state.
  *
- * Keyboard events (keydown/keyup) update current input state and transmit updates.
- * A ~30Hz heartbeat interval ensures continuous input-state updates.
+ * Keyboard events (keydown/keyup) update the internal input state.
+ * The 60Hz prediction loop in Prediction.js reads current input state via getInput()
+ * and generates 1-to-1 input commands at 60Hz.
  */
 export class InputManager {
   constructor() {
     this.input = { up: false, down: false, left: false, right: false };
-    this.heartbeatId = null;
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
-    this.sendInput = this.sendInput.bind(this);
   }
 
   start() {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
-
-    // Controlled ~30Hz input transmission heartbeat (~33.33ms)
-    this.heartbeatId = setInterval(this.sendInput, INPUT_INTERVAL_MS);
   }
 
   stop() {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
-
-    if (this.heartbeatId) {
-      clearInterval(this.heartbeatId);
-      this.heartbeatId = null;
-    }
-
     this.input = { up: false, down: false, left: false, right: false };
   }
 
@@ -41,15 +28,11 @@ export class InputManager {
   }
 
   handleKeyDown(e) {
-    if (this.updateKey(e.key, true)) {
-      this.sendInput();
-    }
+    this.updateKey(e.key, true);
   }
 
   handleKeyUp(e) {
-    if (this.updateKey(e.key, false)) {
-      this.sendInput();
-    }
+    this.updateKey(e.key, false);
   }
 
   updateKey(key, pressed) {
@@ -69,9 +52,5 @@ export class InputManager {
         break;
     }
     return changed;
-  }
-
-  sendInput() {
-    prediction.sendInputState({ ...this.input });
   }
 }

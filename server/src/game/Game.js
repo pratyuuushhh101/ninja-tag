@@ -19,7 +19,7 @@ export class Game {
       x: 200,
       y: this.arena.height / 2,
       input: { up: false, down: false, left: false, right: false },
-      currentInputSequence: 0,
+      inputQueue: [],
       lastReceivedInputSequence: 0,
       lastProcessedInputSequence: 0
     });
@@ -29,7 +29,7 @@ export class Game {
       x: 800,
       y: this.arena.height / 2,
       input: { up: false, down: false, left: false, right: false },
-      currentInputSequence: 0,
+      inputQueue: [],
       lastReceivedInputSequence: 0,
       lastProcessedInputSequence: 0
     });
@@ -48,20 +48,33 @@ export class Game {
     }
 
     player.lastReceivedInputSequence = sequence;
-    player.currentInputSequence = sequence;
-    player.input = input;
-    // NOTE: lastProcessedInputSequence is NOT updated here on receipt!
+
+    // Queue input command in sequence order
+    player.inputQueue.push({ sequence, input });
+    player.inputQueue.sort((a, b) => a.sequence - b.sequence);
+
+    // Defensive queue cap to prevent memory growth from malformed clients
+    if (player.inputQueue.length > 100) {
+      player.inputQueue.shift();
+    }
   }
 
   update(fixedDt = FIXED_DT) {
     this.tick += 1;
 
-    // Process inputs and update movement for each player using shared movement logic
+    // Process at most 1 input command per player per 60Hz physics tick
     for (const [, player] of this.players) {
+      if (player.inputQueue.length > 0) {
+        const cmd = player.inputQueue.shift();
+        player.input = cmd.input;
+        player.lastProcessedInputSequence = cmd.sequence;
+      }
+      // Note: If inputQueue is empty, player.input remains unchanged (reused)
+      // and lastProcessedInputSequence remains at its current value until new commands are processed.
+
       const newPos = simulatePlayerMovement({ x: player.x, y: player.y }, player.input, fixedDt);
       player.x = newPos.x;
       player.y = newPos.y;
-      player.lastProcessedInputSequence = player.currentInputSequence;
     }
 
     // Check tag collision

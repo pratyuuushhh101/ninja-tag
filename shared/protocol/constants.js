@@ -64,8 +64,8 @@ export const MAX_FRAME_TIME = 0.25; // seconds (protection against spiral of dea
 export const SNAPSHOT_SEND_RATE = 20; // 20 snapshots per second
 export const SNAPSHOT_INTERVAL_MS = 1000 / SNAPSHOT_SEND_RATE; // 50 ms
 
-export const INPUT_SEND_RATE = 30; // 30 input commands per second
-export const INPUT_INTERVAL_MS = 1000 / INPUT_SEND_RATE; // ~33.33 ms
+export const INPUT_SEND_RATE = 60; // 60 input commands per second
+export const INPUT_INTERVAL_MS = 1000 / INPUT_SEND_RATE; // ~16.67 ms
 
 // ── Game-ended reason codes ────────────────────────────────────────────
 export const GAME_END_REASONS = Object.freeze({

@@ -191,7 +191,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ padding: '20px' }}>
+    <div style={screen === 'game' ? {} : { padding: '20px' }}>
       {screen === 'landing' && (
         <LandingScreen
           onCreateGame={handleCreateGame}

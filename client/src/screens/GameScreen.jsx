@@ -1,13 +1,22 @@
 import { useEffect, useRef } from 'react';
 import GameCanvas from '../components/GameCanvas.jsx';
 import { InputManager } from '../game/InputManager.js';
-import { networkState } from '../network/NetworkState.js';
 import { prediction } from '../game/Prediction.js';
 
 export default function GameScreen({ roomCode, playerId, gameState, arena, onLeave, gameEndReason }) {
   const inputManagerRef = useRef(null);
+  const containerRef = useRef(null);
 
+  // InputManager & Prediction lifecycle — identical to Phase 4.7
+  // Ensures window and container gain focus when game starts so keyboard events register immediately.
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.focus();
+    }
+    if (containerRef.current) {
+      containerRef.current.focus();
+    }
+
     if (!gameEndReason) {
       const im = new InputManager();
       im.start();
@@ -24,29 +33,60 @@ export default function GameScreen({ roomCode, playerId, gameState, arena, onLea
     }
   }, [gameEndReason]);
 
-  // Determine role
-  const isIt = gameState && gameState.itPlayerId === playerId;
-  const roleText = isIt ? 'IT' : 'NINJA';
-
   return (
-    <div style={{ position: 'relative' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', backgroundColor: '#222', color: '#fff', borderRadius: '4px 4px 0 0' }}>
-        <div>
-          <span>ROOM: <strong>{roomCode}</strong></span>
-          <span style={{ marginLeft: '20px' }}>YOU: <strong style={{ color: isIt ? '#ff8800' : '#4488ff' }}>{roleText}</strong></span>
-          <span style={{ marginLeft: '20px', fontSize: '12px', color: '#aaa' }}>
-            TICK: {gameState?.tick ?? networkState.latestServerTick} | ACK: {networkState.lastAcknowledgedInput} | SENT: {networkState.nextInputSequence} | PENDING: {prediction.getPendingCount()}
-          </span>
-        </div>
-        <button onClick={onLeave} style={{ padding: '5px 15px', cursor: 'pointer' }}>Leave Game</button>
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      onClick={() => { if (typeof window !== 'undefined') window.focus(); }}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        backgroundColor: '#1a1a2e',
+        overflow: 'hidden',
+        outline: 'none'
+      }}
+    >
+      {/* Full-viewport canvas container */}
+      <div style={{
+        width: '100%',
+        height: '100%',
+        position: 'relative'
+      }}>
+        <GameCanvas
+          gameState={gameState}
+          arena={arena}
+          playerId={playerId}
+          roomCode={roomCode}
+        />
       </div>
 
-      <GameCanvas
-        gameState={gameState}
-        arena={arena}
-        playerId={playerId}
-      />
+      {/* Leave button — small, top-right corner */}
+      <button
+        onClick={onLeave}
+        style={{
+          position: 'absolute',
+          top: 10,
+          right: 10,
+          padding: '6px 14px',
+          fontSize: '12px',
+          fontWeight: '700',
+          color: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.4)',
+          border: '1px solid rgba(255,255,255,0.2)',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          zIndex: 10,
+          letterSpacing: '1px',
+          textTransform: 'uppercase'
+        }}
+      >
+        Leave
+      </button>
 
+      {/* Game Over overlay */}
       {gameEndReason && (
         <div style={{
           position: 'absolute',
@@ -55,11 +95,44 @@ export default function GameScreen({ roomCode, playerId, gameState, arena, onLea
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: 'rgba(0,0,0,0.7)',
-          color: 'white'
+          backgroundColor: 'rgba(26, 26, 46, 0.92)',
+          color: '#ffffff',
+          zIndex: 20
         }}>
-          <h2>Opponent disconnected.</h2>
-          <button onClick={onLeave} style={{ padding: '10px 20px', marginTop: '20px', fontSize: '16px', cursor: 'pointer' }}>
+          <h2 style={{
+            fontSize: '2.4rem',
+            fontWeight: '900',
+            letterSpacing: '4px',
+            marginBottom: '12px',
+            color: '#FF8C00'
+          }}>
+            MATCH OVER
+          </h2>
+          <p style={{
+            fontSize: '1rem',
+            fontWeight: '600',
+            color: '#aaa',
+            marginBottom: '24px'
+          }}>
+            {gameEndReason === 'PLAYER_DISCONNECTED'
+              ? 'Opponent disconnected.'
+              : 'The match has ended.'}
+          </p>
+          <button
+            onClick={onLeave}
+            style={{
+              padding: '12px 28px',
+              fontSize: '14px',
+              fontWeight: '700',
+              color: '#ffffff',
+              backgroundColor: '#E65100',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              letterSpacing: '1px',
+              textTransform: 'uppercase'
+            }}
+          >
             Return to Menu
           </button>
         </div>

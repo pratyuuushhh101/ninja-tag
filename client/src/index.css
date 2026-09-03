@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
 * {
   margin: 0;
   padding: 0;
@@ -5,8 +7,314 @@
 }
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
-  background-color: #1a1a2e;
-  color: #e0e0e0;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  background-color: #5c94fc;
+  color: #ffffff;
   overflow: hidden;
+  image-rendering: pixelated;
+}
+
+/* ── Mario Retro Pixelated Landing Screen Styles ── */
+
+.landing-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #5c94fc; /* Classic Super Mario Sky Blue */
+  overflow: hidden;
+  user-select: none;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+
+.landing-card {
+  background: #181824;
+  border: 4px solid #000000;
+  border-radius: 4px;
+  padding: 32px 32px;
+  width: 90%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 8px 8px 0px #000000;
+  z-index: 10;
+  position: relative;
+}
+
+.landing-badge {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 0.55rem;
+  line-height: 1.4;
+  color: #FBD000; /* Mario Yellow */
+  background: #000000;
+  border: 2px solid #FBD000;
+  padding: 6px 10px;
+  border-radius: 2px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  box-shadow: 2px 2px 0px #000000;
+  text-align: center;
+}
+
+.landing-title {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 2.2rem;
+  line-height: 1.2;
+  color: #FBD000; /* Super Mario Yellow */
+  text-align: center;
+  margin-bottom: 10px;
+  /* NO GLOW: Crisp pixelated black drop shadow */
+  text-shadow: 4px 4px 0px #000000, -2px -2px 0px #000000, 2px -2px 0px #000000, -2px 2px 0px #000000, 2px 2px 0px #000000;
+}
+
+.landing-tagline {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 0.65rem;
+  line-height: 1.5;
+  color: #ffffff;
+  text-transform: uppercase;
+  margin-bottom: 28px;
+  text-align: center;
+  text-shadow: 2px 2px 0px #000000;
+}
+
+.duration-group {
+  width: 100%;
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.duration-label {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 0.6rem;
+  color: #FBD000;
+  text-transform: uppercase;
+  text-align: center;
+  text-shadow: 2px 2px 0px #000000;
+}
+
+.duration-options {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.duration-btn {
+  flex: 1;
+  padding: 10px 0;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 0.6rem;
+  border-radius: 2px;
+  cursor: pointer;
+  border: 3px solid #000000;
+  background: #222536;
+  color: #888888;
+  box-shadow: 3px 3px 0px #000000;
+  transition: transform 0.1s ease;
+}
+
+.duration-btn:hover {
+  background: #383c54;
+  color: #ffffff;
+}
+
+.duration-btn.active {
+  background: #E52521; /* Mario Red */
+  border-color: #000000;
+  color: #ffffff;
+  box-shadow: 3px 3px 0px #000000;
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 14px 16px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: #E52521; /* Super Mario Red */
+  border: 3px solid #000000;
+  border-radius: 4px;
+  cursor: pointer;
+  box-shadow: 4px 4px 0px #000000;
+  transition: transform 0.1s ease, background-color 0.1s ease;
+  margin-bottom: 12px;
+}
+
+.btn-primary:hover {
+  background: #ff3b37;
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0px #000000;
+}
+
+.btn-primary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px #000000;
+}
+
+.btn-secondary {
+  width: 100%;
+  padding: 12px 16px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 0.75rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: #00A800; /* Mario Pipe Green */
+  border: 3px solid #000000;
+  border-radius: 4px;
+  cursor: pointer;
+  box-shadow: 4px 4px 0px #000000;
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+.btn-secondary:hover {
+  background: #00c800;
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0px #000000;
+}
+
+.btn-secondary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px #000000;
+}
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.duration-btn:focus-visible {
+  outline: 3px solid #FBD000;
+  outline-offset: 2px;
+}
+
+/* ── Mario Background Elements (Sun, Clouds, Trees, Ground) ── */
+
+.landing-bg-decor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+
+/* Sun position container */
+.mario-sun-wrapper {
+  position: absolute;
+  top: 25px;
+  right: 50px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Clouds */
+.mario-cloud {
+  position: absolute;
+  background: #ffffff;
+  border: 3px solid #000000;
+  border-radius: 20px;
+  box-shadow: 3px 3px 0px rgba(0,0,0,0.2);
+}
+
+.mario-cloud::before, .mario-cloud::after {
+  content: '';
+  position: absolute;
+  background: #ffffff;
+  border: 3px solid #000000;
+  border-radius: 50%;
+}
+
+.mario-cloud-1 {
+  top: 8%;
+  left: -120px;
+  width: 110px;
+  height: 32px;
+  animation: floatCloud 32s linear infinite;
+}
+.mario-cloud-1::before { width: 44px; height: 44px; top: -22px; left: 16px; border-bottom: none; }
+.mario-cloud-1::after { width: 34px; height: 34px; top: -14px; left: 48px; border-bottom: none; }
+
+.mario-cloud-2 {
+  top: 20%;
+  left: -180px;
+  width: 140px;
+  height: 38px;
+  animation: floatCloud 42s linear infinite;
+  animation-delay: 8s;
+}
+.mario-cloud-2::before { width: 54px; height: 54px; top: -26px; left: 22px; border-bottom: none; }
+.mario-cloud-2::after { width: 42px; height: 42px; top: -18px; left: 66px; border-bottom: none; }
+
+.mario-cloud-3 {
+  top: 32%;
+  left: -150px;
+  width: 95px;
+  height: 28px;
+  animation: floatCloud 25s linear infinite;
+  animation-delay: 18s;
+}
+.mario-cloud-3::before { width: 38px; height: 38px; top: -18px; left: 12px; border-bottom: none; }
+.mario-cloud-3::after { width: 28px; height: 28px; top: -10px; left: 42px; border-bottom: none; }
+
+@keyframes floatCloud {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(calc(100vw + 350px)); }
+}
+
+/* Mario Ground & Dirt */
+.ground-strip {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 110px;
+  background: #00A800; /* Mario Grass Green */
+  border-top: 4px solid #000000;
+}
+
+.dirt-strip {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 35px;
+  background: #C84C0C; /* Mario Brick Brown */
+  border-top: 4px solid #000000;
+}
+
+/* SVG Trees Container */
+.mario-trees-container {
+  position: absolute;
+  bottom: 110px;
+  left: 0;
+  right: 0;
+  height: 120px;
+  pointer-events: none;
+  display: flex;
+  justify-content: space-around;
+  padding: 0 30px;
+}
+
+@media (max-height: 600px) {
+  .landing-card {
+    padding: 20px 24px;
+  }
+  .landing-title {
+    font-size: 1.8rem;
+  }
+  .mario-sun-wrapper {
+    top: 15px;
+    right: 20px;
+    transform: scale(0.75);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mario-cloud-1, .mario-cloud-2, .mario-cloud-3 {
+    animation: none !important;
+  }
 }

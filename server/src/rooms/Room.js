@@ -1,12 +1,13 @@
-import { MAX_PLAYERS_PER_ROOM, ROOM_STATES } from '../../../shared/protocol/constants.js';
+import { MAX_PLAYERS_PER_ROOM, ROOM_STATES, DEFAULT_MATCH_DURATION } from '../../../shared/protocol/constants.js';
 
 export class Room {
-  constructor(id) {
+  constructor(id, durationSeconds = DEFAULT_MATCH_DURATION) {
     this.id = id;
     this.players = new Map();
     this.state = ROOM_STATES.WAITING_FOR_PLAYER;
     this.createdAt = Date.now();
     this.game = null;
+    this.matchDurationSeconds = durationSeconds;
   }
 
   addPlayer(playerId, ws) {

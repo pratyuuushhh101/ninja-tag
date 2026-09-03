@@ -22,6 +22,7 @@ export function createSnapshot(game) {
     type: SERVER_MESSAGES.SNAPSHOT,
     tick: game.tick,
     players,
-    itPlayerId: game.itPlayerId
+    itPlayerId: game.itPlayerId,
+    serverTime: Date.now()
   };
 }

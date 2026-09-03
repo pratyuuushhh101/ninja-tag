@@ -30,6 +30,10 @@ export default function App() {
   const [gameState, setGameState] = useState(null);
   const [arena, setArena] = useState(null);
   const [gameEndReason, setGameEndReason] = useState(null);
+  const [gameEndResult, setGameEndResult] = useState(null);
+  const [matchEndTime, setMatchEndTime] = useState(null);
+  const serverTimeRef = useRef(null);
+
   const handlersSet = useRef(false);
 
   useEffect(() => {
@@ -76,8 +80,16 @@ export default function App() {
 
           setPlayerId(localId);
           setArena(msg.arena);
+
+          const durationSec = msg.matchDurationSeconds || 60;
+          const sTime = msg.serverTime || Date.now();
+          const endTime = sTime + (durationSec * 1000);
+          setMatchEndTime(endTime);
+          serverTimeRef.current = { serverTime: sTime, localTime: performance.now() };
+
           setGameState(prediction.getRenderState({ tick: msg.tick || 0, players: msg.players, itPlayerId: msg.itPlayerId }, localId));
           setGameEndReason(null);
+          setGameEndResult(null);
           setScreen('game');
           break;
         }
@@ -85,6 +97,10 @@ export default function App() {
         case SERVER_MESSAGES.SNAPSHOT:
         case SERVER_MESSAGES.GAME_STATE: {
           const activeLocalId = playerIdRef.current;
+
+          if (msg.serverTime) {
+            serverTimeRef.current = { serverTime: msg.serverTime, localTime: performance.now() };
+          }
 
           // Process authoritative snapshot in NetworkState (validates tick & extracts ACK for activeLocalId)
           if (networkState.handleSnapshot(msg, activeLocalId)) {
@@ -107,6 +123,11 @@ export default function App() {
 
         case SERVER_MESSAGES.GAME_ENDED:
           setGameEndReason(msg.reason);
+          setGameEndResult({
+            reason: msg.reason,
+            winnerId: msg.winnerId,
+            loserId: msg.loserId
+          });
           break;
 
         case SERVER_MESSAGES.ERROR:
@@ -134,14 +155,16 @@ export default function App() {
       setGameState(null);
       setArena(null);
       setGameEndReason(null);
+      setGameEndResult(null);
+      setMatchEndTime(null);
     });
   }, []);
 
-  const handleCreateGame = async () => {
+  const handleCreateGame = async (durationSeconds = 60) => {
     setError(null);
     try {
       await wsClient.connect();
-      wsClient.send({ type: CLIENT_MESSAGES.CREATE_ROOM });
+      wsClient.send({ type: CLIENT_MESSAGES.CREATE_ROOM, durationSeconds });
     } catch (e) {
       setError('Failed to connect to server');
     }
@@ -180,6 +203,8 @@ export default function App() {
     setGameState(null);
     setArena(null);
     setGameEndReason(null);
+    setGameEndResult(null);
+    setMatchEndTime(null);
     setError(null);
   };
 
@@ -223,6 +248,9 @@ export default function App() {
           arena={arena}
           onLeave={handleLeaveGame}
           gameEndReason={gameEndReason}
+          gameEndResult={gameEndResult}
+          matchEndTime={matchEndTime}
+          serverTimeRef={serverTimeRef}
         />
       )}
 

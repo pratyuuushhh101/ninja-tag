@@ -12,9 +12,9 @@ export class RoomManager {
     this.gameLoop = new GameLoop();
   }
 
-  createRoom(ws) {
+  createRoom(ws, durationSeconds) {
     const roomCode = generateRoomCode(this.rooms);
-    const room = new Room(roomCode);
+    const room = new Room(roomCode, durationSeconds);
     this.rooms.set(roomCode, room);
 
     const playerId = generatePlayerId();
@@ -52,9 +52,12 @@ export class RoomManager {
 
     const game = new Game();
     const playerIds = Array.from(room.players.keys());
-    game.initialize(playerIds);
+    game.initialize(playerIds, room.matchDurationSeconds);
+    game.startMatch();
     room.game = game;
     room.state = ROOM_STATES.PLAYING;
+
+    const serverTime = Date.now();
 
     // Send GAME_STARTED to each player individually (with their own playerId)
     for (const [playerId, player] of room.players) {
@@ -66,7 +69,9 @@ export class RoomManager {
             yourPlayerId: playerId,
             arena: game.arena,
             itPlayerId: game.itPlayerId,
-            players: game.getState().players
+            players: game.getState().players,
+            matchDurationSeconds: room.matchDurationSeconds,
+            serverTime
           }));
         } catch (err) {
           console.error(`[NinjaTag] Error sending GAME_STARTED to ${playerId}:`, err);

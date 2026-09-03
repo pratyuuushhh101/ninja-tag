@@ -67,9 +67,14 @@ export const SNAPSHOT_INTERVAL_MS = 1000 / SNAPSHOT_SEND_RATE; // 50 ms
 export const INPUT_SEND_RATE = 60; // 60 input commands per second
 export const INPUT_INTERVAL_MS = 1000 / INPUT_SEND_RATE; // ~16.67 ms
 
+// ── Match Duration Configuration ───────────────────────────────────────
+export const VALID_MATCH_DURATIONS = Object.freeze([20, 40, 60]);
+export const DEFAULT_MATCH_DURATION = 60;
+
 // ── Game-ended reason codes ────────────────────────────────────────────
 export const GAME_END_REASONS = Object.freeze({
   PLAYER_DISCONNECTED: 'PLAYER_DISCONNECTED',
+  TIME_EXPIRED: 'TIME_EXPIRED',
 });
 
 // ── Valid input keys ───────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { CLIENT_MESSAGES, SERVER_MESSAGES, ERROR_CODES, ROOM_CODE_CHARSET, ROOM_CODE_LENGTH, ROOM_STATES, VALID_INPUT_KEYS } from '../../../shared/protocol/constants.js';
+import { CLIENT_MESSAGES, SERVER_MESSAGES, ERROR_CODES, ROOM_CODE_CHARSET, ROOM_CODE_LENGTH, ROOM_STATES, VALID_INPUT_KEYS, VALID_MATCH_DURATIONS, DEFAULT_MATCH_DURATION } from '../../../shared/protocol/constants.js';
 
 function sendMessage(ws, message) {
   if (ws.readyState === 1 /* WebSocket.OPEN */) {
@@ -18,20 +18,29 @@ function sendError(ws, code, message) {
   });
 }
 
-function handleCreateRoom(ws, roomManager) {
+function handleCreateRoom(ws, message, roomManager) {
   if (roomManager.hasContext(ws)) {
     return sendError(ws, ERROR_CODES.ALREADY_IN_ROOM, 'You are already in a room.');
   }
 
+  let durationSeconds = DEFAULT_MATCH_DURATION;
+  if (message && message.durationSeconds !== undefined) {
+    if (typeof message.durationSeconds !== 'number' || !VALID_MATCH_DURATIONS.includes(message.durationSeconds)) {
+      return sendError(ws, ERROR_CODES.INVALID_STATE, 'Invalid match duration.');
+    }
+    durationSeconds = message.durationSeconds;
+  }
+
   try {
-    const { roomCode, playerId } = roomManager.createRoom(ws);
-    console.log(`[NinjaTag] Room ${roomCode} created by player ${playerId}.`);
+    const { roomCode, playerId } = roomManager.createRoom(ws, durationSeconds);
+    console.log(`[NinjaTag] Room ${roomCode} created by player ${playerId} with duration ${durationSeconds}s.`);
     sendMessage(ws, {
       type: SERVER_MESSAGES.ROOM_CREATED,
       roomCode,
       playerId,
       roomState: ROOM_STATES.WAITING_FOR_PLAYER,
-      playerCount: 1
+      playerCount: 1,
+      matchDurationSeconds: durationSeconds
     });
   } catch (err) {
     console.error('[NinjaTag] Failed to create room:', err);
@@ -143,7 +152,7 @@ export function handleMessage(ws, rawData, roomManager) {
 
   switch (message.type) {
     case CLIENT_MESSAGES.CREATE_ROOM:
-      handleCreateRoom(ws, roomManager);
+      handleCreateRoom(ws, message, roomManager);
       break;
     case CLIENT_MESSAGES.JOIN_ROOM:
       handleJoinRoom(ws, message, roomManager);

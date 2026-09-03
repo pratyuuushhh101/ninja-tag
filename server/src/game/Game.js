@@ -8,10 +8,18 @@ export class Game {
     this.itPlayerId = null;
     this.arena = { width: ARENA_WIDTH, height: ARENA_HEIGHT };
     this.tagLocked = false; // prevents tag flickering
+    this.matchDurationSeconds = 60;
+    this.matchStartTime = null;
+    this.matchEndTime = null;
+    this.ended = false;
   }
 
-  initialize(playerIds) {
+  initialize(playerIds, durationSeconds = 60) {
     this.tick = 0;
+    this.matchDurationSeconds = durationSeconds;
+    this.matchStartTime = null;
+    this.matchEndTime = null;
+    this.ended = false;
     const ids = Array.from(playerIds);
 
     this.players.set(ids[0], {
@@ -36,6 +44,11 @@ export class Game {
 
     // Randomly assign IT
     this.itPlayerId = Math.random() < 0.5 ? ids[0] : ids[1];
+  }
+
+  startMatch() {
+    this.matchStartTime = Date.now();
+    this.matchEndTime = this.matchStartTime + (this.matchDurationSeconds * 1000);
   }
 
   setPlayerInput(playerId, sequence, input) {
@@ -79,6 +92,21 @@ export class Game {
 
     // Check tag collision
     this.checkTagCollision();
+
+    // Check timer expiration
+    if (this.matchEndTime && !this.ended && Date.now() >= this.matchEndTime) {
+      this.ended = true;
+      const playerIds = Array.from(this.players.keys());
+      const loserId = this.itPlayerId;
+      const winnerId = playerIds.find(id => id !== loserId) || null;
+      return {
+        expired: true,
+        winnerId,
+        loserId
+      };
+    }
+
+    return null;
   }
 
   checkTagCollision() {

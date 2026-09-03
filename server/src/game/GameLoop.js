@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { FIXED_DT, MAX_FRAME_TIME, SNAPSHOT_INTERVAL_MS, SERVER_TICK_RATE, SNAPSHOT_SEND_RATE } from '../../../shared/protocol/constants.js';
+import { FIXED_DT, MAX_FRAME_TIME, SNAPSHOT_INTERVAL_MS, SERVER_TICK_RATE, SNAPSHOT_SEND_RATE, SERVER_MESSAGES, GAME_END_REASONS, ROOM_STATES } from '../../../shared/protocol/constants.js';
 import { createSnapshot } from './SnapshotGenerator.js';
 
 export class GameLoop {
@@ -31,8 +31,20 @@ export class GameLoop {
 
       // Execute fixed 60Hz simulation ticks
       while (accumulator >= FIXED_DT) {
-        room.game.update(FIXED_DT);
+        const updateResult = room.game.update(FIXED_DT);
         accumulator -= FIXED_DT;
+
+        if (updateResult && updateResult.expired) {
+          room.state = ROOM_STATES.ENDED;
+          room.broadcastToRoom({
+            type: SERVER_MESSAGES.GAME_ENDED,
+            reason: GAME_END_REASONS.TIME_EXPIRED,
+            winnerId: updateResult.winnerId,
+            loserId: updateResult.loserId
+          });
+          this.stop(roomCode);
+          return;
+        }
       }
 
       // Broadcast authoritative snapshots at decoupled snapshot rate (20Hz)

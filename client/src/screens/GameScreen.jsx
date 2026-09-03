@@ -3,7 +3,17 @@ import GameCanvas from '../components/GameCanvas.jsx';
 import { InputManager } from '../game/InputManager.js';
 import { prediction } from '../game/Prediction.js';
 
-export default function GameScreen({ roomCode, playerId, gameState, arena, onLeave, gameEndReason }) {
+export default function GameScreen({
+  roomCode,
+  playerId,
+  gameState,
+  arena,
+  onLeave,
+  gameEndReason,
+  gameEndResult,
+  matchEndTime,
+  serverTimeRef
+}) {
   const inputManagerRef = useRef(null);
   const containerRef = useRef(null);
 
@@ -33,6 +43,8 @@ export default function GameScreen({ roomCode, playerId, gameState, arena, onLea
     }
   }, [gameEndReason]);
 
+  const isWinner = gameEndResult && gameEndResult.winnerId === playerId;
+
   return (
     <div
       ref={containerRef}
@@ -60,6 +72,8 @@ export default function GameScreen({ roomCode, playerId, gameState, arena, onLea
           arena={arena}
           playerId={playerId}
           roomCode={roomCode}
+          matchEndTime={matchEndTime}
+          serverTimeRef={serverTimeRef}
         />
       </div>
 
@@ -103,21 +117,37 @@ export default function GameScreen({ roomCode, playerId, gameState, arena, onLea
             fontSize: '2.4rem',
             fontWeight: '900',
             letterSpacing: '4px',
-            marginBottom: '12px',
-            color: '#FF8C00'
+            marginBottom: '8px',
+            color: gameEndReason === 'TIME_EXPIRED'
+              ? (isWinner ? '#4CAF50' : '#E53935')
+              : '#FF8C00'
           }}>
-            MATCH OVER
+            {gameEndReason === 'TIME_EXPIRED' ? "TIME'S UP" : 'MATCH OVER'}
           </h2>
+
+          <h3 style={{
+            fontSize: '1.8rem',
+            fontWeight: '800',
+            letterSpacing: '2px',
+            marginBottom: '12px',
+            color: isWinner ? '#4CAF50' : '#E53935'
+          }}>
+            {gameEndReason === 'TIME_EXPIRED'
+              ? (isWinner ? 'YOU WIN' : 'YOU LOSE')
+              : (gameEndReason === 'PLAYER_DISCONNECTED' ? 'OPPONENT DISCONNECTED' : 'MATCH ENDED')}
+          </h3>
+
           <p style={{
             fontSize: '1rem',
             fontWeight: '600',
             color: '#aaa',
             marginBottom: '24px'
           }}>
-            {gameEndReason === 'PLAYER_DISCONNECTED'
-              ? 'Opponent disconnected.'
-              : 'The match has ended.'}
+            {gameEndReason === 'TIME_EXPIRED'
+              ? 'THE PLAYER WHO WAS IT LOST'
+              : (gameEndReason === 'PLAYER_DISCONNECTED' ? 'Opponent left the match.' : '')}
           </p>
+
           <button
             onClick={onLeave}
             style={{

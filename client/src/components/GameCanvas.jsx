@@ -332,13 +332,31 @@ function drawNinja(ctx, x, y, bodyColor, headbandColor, isIt, isLocal, tick) {
 
 // ── HUD drawing ──
 
-function drawHUD(ctx, isIt, roomCode) {
+function formatTimerText(matchEndTime, serverTimeRef) {
+  if (!matchEndTime || !serverTimeRef || !serverTimeRef.current) {
+    return '00:00';
+  }
+
+  const { serverTime, localTime } = serverTimeRef.current;
+  const elapsedSinceSync = performance.now() - localTime;
+  const estimatedServerTime = serverTime + elapsedSinceSync;
+  const remainingMs = Math.max(0, matchEndTime - estimatedServerTime);
+  const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+
+  const mins = Math.floor(remainingSeconds / 60);
+  const secs = remainingSeconds % 60;
+  const mm = String(mins).padStart(2, '0');
+  const ss = String(secs).padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
+function drawHUD(ctx, isIt, roomCode, matchEndTime, serverTimeRef) {
   // Role badge — top left
   const badgeText = isIt ? 'YOU ARE IT!' : 'RUN!';
   const badgeBg = isIt ? '#E65100' : '#1565C0';
   ctx.font = 'bold 16px system-ui';
   const textW = ctx.measureText(badgeText).width;
-  const px = 10, py = 6;
+  const px = 10;
 
   // Badge background
   ctx.fillStyle = badgeBg;
@@ -363,6 +381,14 @@ function drawHUD(ctx, isIt, roomCode) {
   ctx.textBaseline = 'middle';
   ctx.fillText(badgeText, bx + px, by + bh / 2 + 1);
 
+  // Match Timer — top center
+  const timerText = formatTimerText(matchEndTime, serverTimeRef);
+  ctx.font = 'bold 22px monospace';
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(timerText, WORLD_W / 2, 14);
+
   // Room code — top right
   if (roomCode) {
     ctx.font = 'bold 12px monospace';
@@ -379,7 +405,7 @@ const MAX_BUFFER_SIZE = 5;   // Keep only the latest N snapshots
 
 // ── Main component ──
 
-export default function GameCanvas({ gameState, arena, playerId, roomCode }) {
+export default function GameCanvas({ gameState, arena, playerId, roomCode, matchEndTime, serverTimeRef }) {
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
 
@@ -388,6 +414,7 @@ export default function GameCanvas({ gameState, arena, playerId, roomCode }) {
   const arenaRef = useRef(null);
   const playerIdRef = useRef(null);
   const roomCodeRef = useRef(null);
+  const matchEndTimeRef = useRef(null);
 
   // Snapshot buffer for remote player interpolation (visual only)
   const snapshotBufferRef = useRef([]);
@@ -396,6 +423,7 @@ export default function GameCanvas({ gameState, arena, playerId, roomCode }) {
   useEffect(() => { arenaRef.current = arena; }, [arena]);
   useEffect(() => { playerIdRef.current = playerId; }, [playerId]);
   useEffect(() => { roomCodeRef.current = roomCode; }, [roomCode]);
+  useEffect(() => { matchEndTimeRef.current = matchEndTime; }, [matchEndTime]);
 
   // When gameState changes, update ref AND append to snapshot buffer
   useEffect(() => {
@@ -541,7 +569,7 @@ export default function GameCanvas({ gameState, arena, playerId, roomCode }) {
 
       // ── Layer 9: HUD ──
       const isIt = currentGameState && currentGameState.itPlayerId === currentPlayerId;
-      drawHUD(ctx, isIt, roomCodeRef.current);
+      drawHUD(ctx, isIt, roomCodeRef.current, matchEndTimeRef.current, serverTimeRef);
 
       ctx.restore();
 

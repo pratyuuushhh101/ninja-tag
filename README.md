@@ -9,7 +9,7 @@ A real-time, browser-based, server-authoritative 2-player 2D multiplayer tag gam
 ## 🚀 Key Features & Architecture
 
 - **🎮 Dual Play Modes**:
-  - **Play vs Bot (Single-Player Recruiter Demo)**: Instantly jump into a match against a server-authoritative virtual bot with intelligent chase/flee AI and wall-repulsion navigation. No second player needed!
+  - **Play vs Bot**: Instantly jump into a match against a server-authoritative virtual bot with intelligent chase/flee AI and wall-repulsion navigation. No second player needed!
   - **Play with Friends (Multiplayer)**: Create a custom waiting room with a shareable 5-character code and play head-to-head with another human player.
 - **⚡ 60Hz Client-Side Prediction & Reconciliation**: Local player movement is simulated instantly on keypress using shared physics math (`shared/game/movement.js`), generating 1-to-1 sequence-numbered input commands sent at 60Hz.
 - **🖥️ Server Authority**: The server executes a fixed 60Hz physics simulation loop, handling authoritative movement, boundary clamping, tag transfers, separation knockbacks, and match timers.

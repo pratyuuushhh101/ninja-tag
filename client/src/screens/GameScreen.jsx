@@ -12,7 +12,8 @@ export default function GameScreen({
   gameEndReason,
   gameEndResult,
   matchEndTime,
-  serverTimeRef
+  serverTimeRef,
+  isBotMode
 }) {
   const inputManagerRef = useRef(null);
   const containerRef = useRef(null);
@@ -44,6 +45,22 @@ export default function GameScreen({
   }, [gameEndReason]);
 
   const isWinner = gameEndResult && gameEndResult.winnerId === playerId;
+
+  let resultHeading = 'MATCH ENDED';
+  let resultSubtext = '';
+
+  if (gameEndReason === 'TIME_EXPIRED') {
+    if (isBotMode) {
+      resultHeading = isWinner ? 'YOU WON!' : 'BOT WON!';
+      resultSubtext = isWinner ? 'YOU OUTRAN THE BOT!' : 'THE BOT CAUGHT YOU!';
+    } else {
+      resultHeading = isWinner ? 'YOU WIN' : 'YOU LOSE';
+      resultSubtext = 'THE PLAYER WHO WAS IT LOST';
+    }
+  } else if (gameEndReason === 'PLAYER_DISCONNECTED') {
+    resultHeading = isBotMode ? 'BOT LEFT' : 'OPPONENT LEFT';
+    resultSubtext = isBotMode ? 'Bot match ended.' : 'Opponent left the match.';
+  }
 
   return (
     <div
@@ -77,27 +94,27 @@ export default function GameScreen({
         />
       </div>
 
-      {/* Leave button — small, top-right corner */}
+      {/* Leave button — Mario NES style, top-right corner */}
       <button
         onClick={onLeave}
         style={{
           position: 'absolute',
-          top: 10,
-          right: 10,
-          padding: '6px 14px',
-          fontSize: '12px',
+          top: 14,
+          right: 14,
+          padding: '8px 16px',
+          fontFamily: "'Press Start 2P', monospace",
+          fontSize: '0.65rem',
           fontWeight: '700',
           color: '#ffffff',
-          backgroundColor: 'rgba(0,0,0,0.4)',
-          border: '1px solid rgba(255,255,255,0.2)',
-          borderRadius: '4px',
+          backgroundColor: '#E52521',
+          border: '2px solid #000000',
+          boxShadow: '3px 3px 0px #000000',
           cursor: 'pointer',
           zIndex: 10,
-          letterSpacing: '1px',
           textTransform: 'uppercase'
         }}
       >
-        Leave
+        LEAVE
       </button>
 
       {/* Game Over overlay */}
@@ -109,61 +126,62 @@ export default function GameScreen({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: 'rgba(26, 26, 46, 0.92)',
+          backgroundColor: 'rgba(24, 24, 36, 0.95)',
           color: '#ffffff',
-          zIndex: 20
+          zIndex: 20,
+          fontFamily: "'Press Start 2P', monospace",
+          padding: '24px',
+          textAlign: 'center'
         }}>
           <h2 style={{
-            fontSize: '2.4rem',
-            fontWeight: '900',
-            letterSpacing: '4px',
-            marginBottom: '8px',
+            fontSize: '2rem',
+            lineHeight: 1.4,
+            marginBottom: '16px',
             color: gameEndReason === 'TIME_EXPIRED'
               ? (isWinner ? '#4CAF50' : '#E53935')
-              : '#FF8C00'
+              : '#FBD000',
+            textShadow: '3px 3px 0px #000000'
           }}>
-            {gameEndReason === 'TIME_EXPIRED' ? "TIME'S UP" : 'MATCH OVER'}
+            {gameEndReason === 'TIME_EXPIRED' ? "TIME'S UP!" : 'MATCH OVER'}
           </h2>
 
           <h3 style={{
-            fontSize: '1.8rem',
-            fontWeight: '800',
-            letterSpacing: '2px',
-            marginBottom: '12px',
-            color: isWinner ? '#4CAF50' : '#E53935'
+            fontSize: '1.3rem',
+            lineHeight: 1.4,
+            marginBottom: '16px',
+            color: isWinner ? '#4CAF50' : '#E53935',
+            textShadow: '2px 2px 0px #000000'
           }}>
-            {gameEndReason === 'TIME_EXPIRED'
-              ? (isWinner ? 'YOU WIN' : 'YOU LOSE')
-              : (gameEndReason === 'PLAYER_DISCONNECTED' ? 'OPPONENT DISCONNECTED' : 'MATCH ENDED')}
+            {resultHeading}
           </h3>
 
           <p style={{
-            fontSize: '1rem',
-            fontWeight: '600',
-            color: '#aaa',
-            marginBottom: '24px'
+            fontSize: '0.7rem',
+            lineHeight: 1.6,
+            color: '#FBD000',
+            marginBottom: '32px',
+            textShadow: '1px 1px 0px #000000'
           }}>
-            {gameEndReason === 'TIME_EXPIRED'
-              ? 'THE PLAYER WHO WAS IT LOST'
-              : (gameEndReason === 'PLAYER_DISCONNECTED' ? 'Opponent left the match.' : '')}
+            {resultSubtext}
           </p>
 
           <button
             onClick={onLeave}
             style={{
-              padding: '12px 28px',
-              fontSize: '14px',
+              fontFamily: "'Press Start 2P', monospace",
+              padding: '14px 28px',
+              fontSize: '0.75rem',
               fontWeight: '700',
               color: '#ffffff',
-              backgroundColor: '#E65100',
-              border: 'none',
-              borderRadius: '6px',
+              backgroundColor: '#E52521',
+              border: '3px solid #000000',
+              boxShadow: '4px 4px 0px #000000',
               cursor: 'pointer',
               letterSpacing: '1px',
               textTransform: 'uppercase'
             }}
           >
-            Return to Menu
+            RETURN TO MENU
           </button>
         </div>
       )}

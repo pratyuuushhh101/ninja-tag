@@ -8,6 +8,7 @@
 // ── Client → Server message types ──────────────────────────────────────
 export const CLIENT_MESSAGES = Object.freeze({
   CREATE_ROOM: 'CREATE_ROOM',
+  CREATE_BOT_ROOM: 'CREATE_BOT_ROOM',
   JOIN_ROOM: 'JOIN_ROOM',
   INPUT: 'INPUT',
 });

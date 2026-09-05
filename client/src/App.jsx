@@ -32,6 +32,7 @@ export default function App() {
   const [gameEndReason, setGameEndReason] = useState(null);
   const [gameEndResult, setGameEndResult] = useState(null);
   const [matchEndTime, setMatchEndTime] = useState(null);
+  const [isBotMode, setIsBotMode] = useState(false);
   const serverTimeRef = useRef(null);
 
   const handlersSet = useRef(false);
@@ -71,6 +72,11 @@ export default function App() {
           const localId = msg.yourPlayerId;
           playerIdRef.current = localId;
           networkState.reset();
+
+          const hasBot = msg.players && msg.players.some(p => p.id && p.id.startsWith('bot-'));
+          if (hasBot) {
+            setIsBotMode(true);
+          }
 
           // Initialize local player prediction state with initial spawn coordinates
           const localInitialState = msg.players ? msg.players.find(p => p.id === localId) : null;
@@ -157,11 +163,24 @@ export default function App() {
       setGameEndReason(null);
       setGameEndResult(null);
       setMatchEndTime(null);
+      setIsBotMode(false);
     });
   }, []);
 
+  const handleCreateBotGame = async (durationSeconds = 60) => {
+    setError(null);
+    setIsBotMode(true);
+    try {
+      await wsClient.connect();
+      wsClient.send({ type: CLIENT_MESSAGES.CREATE_BOT_ROOM, durationSeconds });
+    } catch (e) {
+      setError('Failed to connect to server');
+    }
+  };
+
   const handleCreateGame = async (durationSeconds = 60) => {
     setError(null);
+    setIsBotMode(false);
     try {
       await wsClient.connect();
       wsClient.send({ type: CLIENT_MESSAGES.CREATE_ROOM, durationSeconds });
@@ -177,6 +196,7 @@ export default function App() {
 
   const handleJoin = async (code) => {
     setError(null);
+    setIsBotMode(false);
     try {
       await wsClient.connect();
       wsClient.send({ type: CLIENT_MESSAGES.JOIN_ROOM, roomCode: code });
@@ -205,6 +225,7 @@ export default function App() {
     setGameEndReason(null);
     setGameEndResult(null);
     setMatchEndTime(null);
+    setIsBotMode(false);
     setError(null);
   };
 
@@ -219,6 +240,7 @@ export default function App() {
     <div style={screen === 'game' ? {} : { padding: '20px' }}>
       {screen === 'landing' && (
         <LandingScreen
+          onStartBotGame={handleCreateBotGame}
           onCreateGame={handleCreateGame}
           onJoinGame={handleJoinGameClick}
         />
@@ -237,6 +259,7 @@ export default function App() {
           roomCode={roomCode}
           playerCount={playerCount}
           statusMessage={statusMessage}
+          onLeave={handleLeaveGame}
         />
       )}
 
@@ -251,6 +274,7 @@ export default function App() {
           gameEndResult={gameEndResult}
           matchEndTime={matchEndTime}
           serverTimeRef={serverTimeRef}
+          isBotMode={isBotMode}
         />
       )}
 

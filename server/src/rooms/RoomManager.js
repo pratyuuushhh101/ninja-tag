@@ -24,6 +24,47 @@ export class RoomManager {
     return { roomCode, playerId };
   }
 
+  createBotRoom(ws, durationSeconds) {
+    const roomCode = generateRoomCode(this.rooms);
+    const room = new Room(roomCode, durationSeconds);
+    this.rooms.set(roomCode, room);
+
+    const humanPlayerId = generatePlayerId();
+    const botPlayerId = `bot-${generatePlayerId().substring(0, 8)}`;
+
+    room.addPlayer(humanPlayerId, ws);
+
+    // Dummy socket for bot player
+    const mockBotWs = { readyState: 0, send: () => {} };
+    room.addPlayer(botPlayerId, mockBotWs);
+
+    this.socketContexts.set(ws, { roomCode, playerId: humanPlayerId });
+
+    const game = new Game();
+    game.initialize([humanPlayerId, botPlayerId], room.matchDurationSeconds, botPlayerId);
+    game.startMatch();
+    room.game = game;
+    room.state = ROOM_STATES.PLAYING;
+
+    const serverTime = Date.now();
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        type: SERVER_MESSAGES.GAME_STARTED,
+        roomCode,
+        yourPlayerId: humanPlayerId,
+        arena: game.arena,
+        itPlayerId: game.itPlayerId,
+        players: game.getState().players,
+        matchDurationSeconds: room.matchDurationSeconds,
+        serverTime
+      }));
+    }
+
+    this.gameLoop.start(roomCode, room);
+    console.log(`[NinjaTag] Bot game started in room ${roomCode}. Human: ${humanPlayerId}, Bot: ${botPlayerId}, IT: ${game.itPlayerId}`);
+    return { roomCode, playerId: humanPlayerId };
+  }
+
   joinRoom(ws, roomCode) {
     const room = this.rooms.get(roomCode);
     

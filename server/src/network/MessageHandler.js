@@ -48,6 +48,27 @@ function handleCreateRoom(ws, message, roomManager) {
   }
 }
 
+function handleCreateBotRoom(ws, message, roomManager) {
+  if (roomManager.hasContext(ws)) {
+    return sendError(ws, ERROR_CODES.ALREADY_IN_ROOM, 'You are already in a room.');
+  }
+
+  let durationSeconds = DEFAULT_MATCH_DURATION;
+  if (message && message.durationSeconds !== undefined) {
+    if (typeof message.durationSeconds !== 'number' || !VALID_MATCH_DURATIONS.includes(message.durationSeconds)) {
+      return sendError(ws, ERROR_CODES.INVALID_STATE, 'Invalid match duration.');
+    }
+    durationSeconds = message.durationSeconds;
+  }
+
+  try {
+    roomManager.createBotRoom(ws, durationSeconds);
+  } catch (err) {
+    console.error('[NinjaTag] Failed to create bot room:', err);
+    sendError(ws, ERROR_CODES.INVALID_STATE, 'Failed to create bot room.');
+  }
+}
+
 function handleJoinRoom(ws, message, roomManager) {
   if (roomManager.hasContext(ws)) {
     return sendError(ws, ERROR_CODES.ALREADY_IN_ROOM, 'You are already in a room.');
@@ -153,6 +174,9 @@ export function handleMessage(ws, rawData, roomManager) {
   switch (message.type) {
     case CLIENT_MESSAGES.CREATE_ROOM:
       handleCreateRoom(ws, message, roomManager);
+      break;
+    case CLIENT_MESSAGES.CREATE_BOT_ROOM:
+      handleCreateBotRoom(ws, message, roomManager);
       break;
     case CLIENT_MESSAGES.JOIN_ROOM:
       handleJoinRoom(ws, message, roomManager);

@@ -400,7 +400,7 @@ function drawHUD(ctx, isIt, roomCode, matchEndTime, serverTimeRef) {
 }
 
 // ── Snapshot buffer for remote player interpolation ──
-const RENDER_DELAY_MS = 100; // Interpolation delay for remote players
+const RENDER_DELAY_MS = 50; // 1 snapshot interval (50ms) for tight visual synchronization
 const MAX_BUFFER_SIZE = 5;   // Keep only the latest N snapshots
 
 // ── Main component ──

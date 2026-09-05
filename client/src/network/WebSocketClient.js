@@ -8,8 +8,21 @@ export class WebSocketClient {
 
   connect(url) {
     return new Promise((resolve, reject) => {
-      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         resolve();
+        return;
+      }
+
+      if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+        const interval = setInterval(() => {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            clearInterval(interval);
+            resolve();
+          } else if (!this.ws || this.ws.readyState >= WebSocket.CLOSING) {
+            clearInterval(interval);
+            reject(new Error('WebSocket failed to connect'));
+          }
+        }, 20);
         return;
       }
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { MAX_PLAYERS_PER_ROOM } from '../../../shared/protocol/constants.js';
 
-export default function LobbyScreen({ roomCode, playerCount, statusMessage }) {
+export default function LobbyScreen({ roomCode, playerCount, statusMessage, onLeave }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -57,10 +57,25 @@ export default function LobbyScreen({ roomCode, playerCount, statusMessage }) {
           textShadow: '1px 1px 0px #000',
           textAlign: 'center',
           lineHeight: '1.4',
+          marginBottom: '20px',
           fontFamily: "'Press Start 2P', 'Courier New', monospace"
         }}>
           {statusMessage}
         </div>
+
+        {onLeave && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={onLeave}
+            style={{
+              backgroundColor: '#222536',
+              borderColor: '#000000'
+            }}
+          >
+            LEAVE ROOM
+          </button>
+        )}
       </div>
     </div>
   );
